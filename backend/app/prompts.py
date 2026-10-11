@@ -45,6 +45,18 @@ def format_topics(topics: Iterable[Mapping[str, str]]) -> str:
     return "\n".join(items) if items else NA
 
 
+def format_snippets(snippets: Iterable[str]) -> str:
+    """标注片段列表 → 编号列表 `1. 片段`（每片段一行）；空 → 「（暂无）」（Plan §6.4）。"""
+    items = [f"{i}. {s}" for i, s in enumerate(snippets, start=1)]
+    return "\n".join(items) if items else NA
+
+
+def format_concept_names(names: Iterable[str]) -> str:
+    """概念名清单 → 逗号分隔（`容器, 镜像`，**仅名称**不含分数/等级）；空 → 「（暂无）」（Plan §6.4）。"""
+    items = [str(n) for n in names]
+    return ", ".join(items) if items else NA
+
+
 # --- Plan §6.1 解答笔记智能体 — 模式①作答（流式纯 Markdown） -------------------
 
 ANSWER_NOTE_TEMPLATE = """你是一个学习助手，帮助用户在学习陌生领域的同时，把知识沉淀成结构化 Markdown 笔记。
@@ -208,5 +220,50 @@ def render_optimize_initial_prompt(
             "concepts_learning": format_concepts(concepts_learning),
             "question": question,
             "context": _or_na(context),
+        },
+    )
+
+
+# --- Plan §6.4 问题优化智能体 — 模式B（标注 → 候选问题） ------------------------
+
+OPTIMIZE_ANNOTATION_TEMPLATE = """你是提问助手。用户在笔记中标注了一些陌生片段，请猜测针对每个片段用户真正想问什么。
+
+【笔记全文】{note_markdown}
+【标注的陌生片段】{snippets}
+【用户背景】{background}
+【已有概念】{concepts_existing}   // 全部概念名清单（仅名称，不含分数/等级）
+
+【任务】
+1. 针对每个片段，猜测用户最可能想了解的问题 text。
+2. 给出该片段对应的**规范化概念名** concept（**优先复用【已有概念】中的名称**，确属新概念才新建；
+   若片段是"说法"，提炼其中最值得了解的概念）。
+3. 判断片段本身是「概念」（一个词/术语）还是「说法」（一句话/判断）→ kind。
+4. 每个片段**各给一个问题**（**不合并**相近片段，保证与"每个标注单独选深度"一一对应）；按学习顺序（先基础后深入）排序。
+
+【输出】只输出 JSON：
+{"questions": [ {"text": "...", "concept": "...", "kind": "concept", "reason": "..."} ]}
+   // kind ∈ "concept"(词/术语) | "statement"(说法/判断)
+"""
+
+
+def render_optimize_annotation_prompt(
+    *,
+    note_markdown: str,
+    snippets: Iterable[str],
+    background: str,
+    concepts_existing: Iterable[str],
+) -> str:
+    """渲染模式B的 user prompt（§6.4）。
+
+    `{snippets}` → **编号列表**（一标注一问题、按序对应）；`{concepts_existing}` →
+    **逗号分隔的仅名称清单**（供 LLM 优先复用同名概念）；空值统一渲染为「（暂无）」。
+    """
+    return _fill(
+        OPTIMIZE_ANNOTATION_TEMPLATE,
+        {
+            "note_markdown": _or_na(note_markdown),
+            "snippets": format_snippets(snippets),
+            "background": _or_na(background),
+            "concepts_existing": format_concept_names(concepts_existing),
         },
     )

@@ -236,7 +236,7 @@ MODEL=deepseek-flash
 
 ## 6. Prompt 模板（正文）
 
-> **占位符渲染约定**：`{topics}` → `"slug: title"`（如 `docker: Docker 入门`）；`{concepts_mastered}` → `score ≥ 50` 的概念，`名称(等级)`（如 `容器(familiar)`）；`{concepts_learning}` → `score < 50` 的概念，`名称(等级)`（如 `镜像(unfamiliar)`）。**概念记忆一律按 `score` 分这两类喂给 AI**——`< 50` 的多为用户标注过、尚未学会的词，**不得当作已掌握**。`{concepts_existing}`（**仅模式B 使用**）→ **全部概念名清单、不含分数/等级**（如 `容器, 镜像, 低耦合`），供模式B **优先复用同名概念**；`{question}`（**模式①/模式A/模式②** 均用）为空时渲染为「（未提供，仅凭片段与上下文）」（模式①/模式A 的入参 `question` 为必填，实际不空）；`{context}`（**模式①/模式A** 用）→ **引用片段**（大块追问携带的选中原文，Spec FR-4b），普通提问为空、按下方空值约定渲染为「（暂无）」。**空值约定**：除 `{question}`（见上）与 `{slug}`（空 = 新会话/新主题，见模式A 模板）外，其余占位符为空时**统一渲染为「（暂无）」**——典型：新主题首问的 `{note_markdown}`、首个会话的 `{topics}`/`{background}`/`{concepts_mastered}`/`{concepts_learning}`、模式B 的 `{concepts_existing}`。
+> **占位符渲染约定**：`{topics}` → `"slug: title"`（如 `docker: Docker 入门`）；`{concepts_mastered}` → `score ≥ 50` 的概念，`名称(等级)`（如 `容器(familiar)`）；`{concepts_learning}` → `score < 50` 的概念，`名称(等级)`（如 `镜像(unfamiliar)`）。**概念记忆一律按 `score` 分这两类喂给 AI**——`< 50` 的多为用户标注过、尚未学会的词，**不得当作已掌握**。`{concepts_existing}`（**仅模式B 使用**）→ **全部概念名清单、不含分数/等级**（如 `容器, 镜像, 低耦合`），供模式B **优先复用同名概念**；`{snippets}`（**仅模式B 使用**）→ **编号列表**（`1. 片段`，每片段一行，便于与"一标注一问题"按序对应）；`{question}`（**模式①/模式A/模式②** 均用）为空时渲染为「（未提供，仅凭片段与上下文）」（模式①/模式A 的入参 `question` 为必填，实际不空）；`{context}`（**模式①/模式A** 用）→ **引用片段**（大块追问携带的选中原文，Spec FR-4b），普通提问为空、按下方空值约定渲染为「（暂无）」。**空值约定**：除 `{question}`（见上）与 `{slug}`（空 = 新会话/新主题，见模式A 模板）外，其余占位符为空时**统一渲染为「（暂无）」**——典型：新主题首问的 `{note_markdown}`、首个会话的 `{topics}`/`{background}`/`{concepts_mastered}`/`{concepts_learning}`、模式B 的 `{concepts_existing}`。
 
 ### 6.1 解答笔记智能体 — 模式①作答（流式纯 Markdown）
 

@@ -159,6 +159,13 @@ def list_concepts() -> list[dict]:
     ]
 
 
+def list_concept_names() -> list[str]:
+    """全部概念名清单（**仅名称**、按名排序；供模式B 优先复用，Plan §6.4/§7）。"""
+    with connection() as conn:
+        rows = conn.execute("SELECT name FROM concepts ORDER BY name").fetchall()
+    return [r["name"] for r in rows]
+
+
 def concepts_by_mastery() -> tuple[list[dict], list[dict]]:
     """按 `score` 切分为 Prompt 两类（Plan §6 渲染约定）。
 

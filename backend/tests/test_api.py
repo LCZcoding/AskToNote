@@ -385,3 +385,69 @@ def test_optimize_initial_502_when_parse_fails(env) -> None:
     resp = client.post("/api/optimize/initial", json={"question": "Q"})
     assert resp.status_code == 502
     assert len(holder["llm"].json_calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# 模式B：POST /api/optimize/annotation（Plan §4.1 / §6.4 / §7）
+# ---------------------------------------------------------------------------
+
+
+def _seed_concepts(rows: list[tuple[str, int]]) -> None:
+    """写 concepts 表（模式B 的【已有概念】来源）。"""
+    with memory.write_connection() as conn:
+        for name, score in rows:
+            conn.execute(
+                "INSERT INTO concepts (name, score, updated_at) VALUES (?, ?, 't')",
+                (name, score),
+            )
+
+
+def test_optimize_annotation_returns_one_question_per_snippet(env) -> None:
+    """多片段 → 出参条数一致、每项字段齐全；Prompt 注入编号片段与仅名称概念清单。"""
+    client, holder = env
+    _seed_concepts([("容器", 60), ("镜像", 10)])
+    holder["llm"] = FakeLLM(
+        json_responses=[
+            json.dumps(
+                {
+                    "questions": [
+                        {"text": "什么是容器", "concept": "容器", "kind": "concept", "reason": "术语"},
+                        {"text": "镜像与容器的关系", "concept": "镜像", "kind": "concept", "reason": "术语"},
+                    ]
+                }
+            )
+        ]
+    )
+    resp = client.post(
+        "/api/optimize/annotation",
+        json={"snippets": ["容器", "镜像"], "note_markdown": "# Docker 入门"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["questions"]) == 2
+    assert data["questions"][0] == {
+        "text": "什么是容器",
+        "concept": "容器",
+        "kind": "concept",
+        "reason": "术语",
+    }
+    for q in data["questions"]:
+        assert set(q) == {"text", "concept", "kind", "reason"}
+
+    call = holder["llm"].json_calls[0]
+    assert call["json_mode"] is True
+    assert "【笔记全文】# Docker 入门" in call["user"]
+    assert "1. 容器" in call["user"] and "2. 镜像" in call["user"]
+    assert "容器, 镜像" in call["user"]  # 仅名称清单
+    assert "familiar" not in call["user"] and "60" not in call["user"]  # 不含分数/等级
+
+
+def test_optimize_annotation_502_when_parse_fails(env) -> None:
+    """两次都非法 → 502（前端提示）。"""
+    client, holder = env
+    holder["llm"] = FakeLLM(json_responses=["坏输出一", "坏输出二"])
+    resp = client.post(
+        "/api/optimize/annotation", json={"snippets": ["容器"], "note_markdown": ""}
+    )
+    assert resp.status_code == 502
+    assert len(holder["llm"].json_calls) == 2

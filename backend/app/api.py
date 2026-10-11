@@ -2,7 +2,8 @@
 
 - `POST /api/answer`（T1.7）：SSE 流式作答 + 落盘；
 - `GET /api/note/{slug}`、`GET /api/notes`（T1.9）：读接口；
-- `POST /api/optimize/initial`（T1.10）：模式A 优化初始问题 + 命名主题。
+- `POST /api/optimize/initial`（T1.10）：模式A 优化初始问题 + 命名主题；
+- `POST /api/optimize/annotation`（T3.2）：模式B 标注 → 候选问题。
 
 并发模型（Plan §7「接口实现约定」）：接口用**同步 `def`**，由 FastAPI 自动放入线程池，
 同步 LLM/文件/DB 等待只占用工作线程、不阻塞事件循环；SSE 用 `StreamingResponse` 配
@@ -201,3 +202,34 @@ def optimize_initial(
         "slug": result.slug,
         "title": result.title,
     }
+
+
+class OptimizeAnnotationRequest(BaseModel):
+    """`POST /api/optimize/annotation` 入参（Plan §4.1）：划词片段 + 笔记全文。"""
+
+    snippets: list[str]
+    note_markdown: str
+
+
+@router.post("/optimize/annotation")
+def optimize_annotation(
+    req: OptimizeAnnotationRequest, llm: LLMClient = Depends(get_llm)
+) -> dict:
+    """模式B：为每个标注片段生成候选问题（一标注一问题、不合并，Plan §7）。
+
+    组装 = 笔记全文 + **编号片段** + 背景 + **仅名称**概念清单（供优先复用）；
+    LLM 输出两层兜底后仍解析失败 → `502`（前端提示）。
+    """
+    background = memory.get_background()
+    concepts_existing = memory.list_concept_names()
+    try:
+        result = question_optimizer.optimize_annotation(
+            llm,
+            snippets=req.snippets,
+            note_markdown=req.note_markdown,
+            background=background,
+            concepts_existing=concepts_existing,
+        )
+    except JsonParseError as exc:
+        raise HTTPException(status_code=502, detail=f"候选问题生成失败：{exc}")
+    return {"questions": [q.model_dump() for q in result.questions]}
