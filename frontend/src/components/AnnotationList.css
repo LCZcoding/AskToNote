@@ -6,11 +6,37 @@
 }
 
 .anno-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 4px;
 }
 .anno-list-label {
   font-size: 12px;
   color: var(--accent);
+}
+
+/* 「生成候选问题」：整批一次性调模式B（Plan §8，手动触发）。 */
+.anno-generate {
+  padding: 3px 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.anno-generate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.anno-list-error {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #c0392b;
 }
 
 .anno-list-items {

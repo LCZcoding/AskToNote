@@ -112,7 +112,10 @@ interface StoreActions {
   setPendingContext: (text: string) => void
 
   // —— 候选问题（模式B 之后）——
+  /** 整批模式B 结果：**替换**候选队列。 */
   setPendingQuestions: (questions: CandidateQuestion[]) => void
+  /** 下钻模式B 结果：**插到队列最前、优先处理**（Plan §8）。 */
+  prependPendingQuestions: (questions: CandidateQuestion[]) => void
   updatePendingQuestion: (
     id: string,
     patch: Partial<Pick<PendingQuestion, 'text' | 'concept' | 'depth'>>,
@@ -190,6 +193,13 @@ export const useStore = create<Store>()((set) => ({
         depth: null,
       })),
     }),
+  prependPendingQuestions: (questions) =>
+    set((s) => ({
+      pendingQuestions: [
+        ...questions.map((q) => ({ ...q, id: newId(), depth: null })),
+        ...s.pendingQuestions,
+      ],
+    })),
   updatePendingQuestion: (id, patch) =>
     set((s) => ({
       pendingQuestions: s.pendingQuestions.map((q) =>
@@ -206,6 +216,14 @@ export const useStore = create<Store>()((set) => ({
 export const useIsStreaming = (): boolean =>
   useStore((s) => s.phase === 'streaming')
 
-/** 是否可划词标注（`idle` / `done` 两态可，其余阶段禁用）。 */
+/**
+ * 是否可划词标注。
+ *
+ * `idle` / `done`：正常收集标注；`annotating`：串行扩写期间的**下钻**（Plan §8
+ * 「用户可在新扩写内容上继续划词」）；其余阶段（`optimizing` 拉取中/确认卡待处理、
+ * `streaming` 作答中）禁用。
+ */
 export const useCanAnnotate = (): boolean =>
-  useStore((s) => s.phase === 'idle' || s.phase === 'done')
+  useStore(
+    (s) => s.phase === 'idle' || s.phase === 'done' || s.phase === 'annotating',
+  )

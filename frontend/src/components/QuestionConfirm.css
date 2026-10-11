@@ -72,6 +72,121 @@
   cursor: not-allowed;
 }
 
+/* —— 候选问题列表（模式B，T3.5）—— */
+
+.cand-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cand-item {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.cand-text {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.cand-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+.cand-kind {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--code-bg);
+}
+.cand-kind--concept {
+  color: var(--accent);
+}
+.cand-concept {
+  padding: 1px 6px;
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.cand-reason {
+  flex: 1 1 100%;
+  opacity: 0.75;
+}
+
+.cand-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+.cand-depth {
+  display: flex;
+  gap: 6px;
+}
+.cand-depth-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.cand-depth-btn--on {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.cand-remove {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.cand-remove:hover {
+  color: #c0392b;
+}
+
+/* —— 待处理队列（`annotating`，T3.5 只读展示）—— */
+
+.queue-list {
+  margin: 0;
+  padding-left: 20px;
+}
+.queue-item {
+  margin: 4px 0;
+  font-size: 14px;
+}
+.queue-depth {
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 12px;
+}
+
 .confirm-error {
   display: flex;
   justify-content: space-between;
