@@ -119,10 +119,11 @@
   - 验证：`npm run dev` 起服务，浏览器能通过 proxy 访问后端接口。
   - 实测：脚手架（Vite8 + React19 + TS + zustand + react-markdown）已存在；本轮把 `vite.config.ts` 代理目标由 `http://localhost:8000` 改为 `http://127.0.0.1:8000`（规避 localhost→IPv6）。`npm install`（npmmirror）→ up to date；`npm run dev` → Vite ready（:5173）；`uv run uvicorn main:app` → :8000 up。`curl.exe http://localhost:5173/api/notes` → **200 `[]`**（与直连 `127.0.0.1:8000` 一致），proxy 生效；验证后两服务已停止。
 
-- [ ] **T2.2 前端契约与请求层**
+- [x] **T2.2 前端契约与请求层**
   - 做：`src/types.ts` 与后端 JSON 契约对齐；`src/api.ts` 封装 `fetch`，用 `ReadableStream` 读 SSE（按 `type` 分发 `delta`/`done`/`error`，EventSource 不支持 POST）；**必须按行缓冲解析**——chunk 是任意切分的字节段，先 `TextDecoder({stream:true})` 解码并追加到 buffer，按 `\n\n` 切出完整事件再 `JSON.parse`，尾部残片留待下一 chunk，**严禁对每个 chunk 直接 parse**。
   - 产出：`src/types.ts`、`src/api.ts`。
   - 验证：控制台能收到并打印 `delta`、`done`；长回答与中文内容下无 JSON 解析错误/乱码（跨 chunk 切分正确）。
+  - 实测：`npm run build`（`tsc -b && vite build`）→ 通过（20 modules，产出 `dist/`）。`types.ts` 按 Plan §4.0/§4.1 覆盖全部 10 个接口的请求/响应 + `SseEvent` 联合类型（`delta`/`done`/`error`）+ `Kind`/`Depth`/`Level` 枚举联合；`api.ts` 提供 `getNotes`/`getNote`/`getMemory`/`optimizeInitial`/`optimizeAnnotation`/`annotate`/`updateMemory`/`confirmConcept`/`refreshBackground` 与 `streamAnswer`（SSE 按行缓冲：`TextDecoder({stream:true})` → 追加 buffer → 按 `\n\n` 切完整事件分发 → 残片留待下一 chunk；结束再 `decoder.decode()` flush 尾部残片；非 2xx/无流/网络异常统一走 `onError`）。**运行期冒烟**（临时在 `main.tsx` 挂 `streamAnswer` 调用 `POST /api/answer`，验证后已删除并回滚）：`uvicorn` :8000 + `npm run dev` :5173，浏览器加载 → 控制台 **95 条 `[smoke-delta]`**（中文正常、无乱码）+ **1 条 `[smoke-done]`**（笔记全文 3242 字，开头 `# 冒烟T2`），无 JSON 解析错误；后端日志恰 **1 次 `POST /api/answer 200 OK`**。（控制台另有一条 `net::ERR_ABORTED` 属浏览器导航期中止、未到达后端的空请求，非解析错误。）冒烟产物已清理（`data/notes/smoke-t2.md` 与 `notes`/`questions` 行删除）。
 
 - [ ] **T2.3 状态仓库**
   - 做：`src/store.ts`（zustand：`noteSlug`/`noteMarkdown`/`streaming`/`optimizeCard`/`annotations`/`pendingQuestions` + Plan §8 状态机）。
