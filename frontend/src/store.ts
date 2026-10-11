@@ -58,13 +58,24 @@ interface StoreState {
    * 空串 = 无引用片段。仅进 Prompt（`context`），不进 `## 问题` 标题。
    */
   pendingContext: string
+  /**
+   * 流式中「当前新 Q/A 块」的问题标题（Plan §6：`## {问题}`）。
+   * 仅用于流式期间的**临时展示**；`done` 后被后端 `note_markdown` 覆盖校正。
+   */
+  streamingQuestion: string
+  /**
+   * 流式中「当前新 Q/A 块」的正文缓冲（逐 `delta` 追加，T2.6 打字机）。
+   * **不写入 `noteMarkdown`**——避免每个 delta 重解析整篇笔记；
+   * `done` 时用后端 `note_markdown` 覆盖 `noteMarkdown` 并清空本缓冲。
+   */
+  streamingText: string
 }
 
 interface StoreActions {
   // —— 笔记 ——
   /** 打开某主题（启动加载 / 切换主题）。 */
   openNote: (slug: string, markdown: string) => void
-  /** 流式期间累加正文增量（T2.6 打字机）。 */
+  /** 流式期间累加当前新 Q/A 块的正文增量（T2.6 打字机）。 */
   appendDelta: (text: string) => void
 
   // —— 阶段流转（Plan §8）——
@@ -72,11 +83,11 @@ interface StoreActions {
   startOptimize: () => void
   /** 取消确认卡，回到空闲。 */
   cancelOptimize: () => void
-  /** 确认发起 `/api/answer`，进入流式。 */
-  beginStreaming: () => void
-  /** 流结束：用后端 `note_markdown` 覆盖校正，进入可标注态。 */
+  /** 确认发起 `/api/answer`：进入流式，记下新块问题标题、清空正文缓冲。 */
+  beginStreaming: (question: string) => void
+  /** 流结束：用后端 `note_markdown` 覆盖校正，清空流式缓冲，进入可标注态。 */
   finishStreaming: (noteMarkdown: string) => void
-  /** 流式出错：回到空闲（错误提示由组件负责）。 */
+  /** 流式出错：回到空闲、丢弃流式缓冲（错误提示由组件负责）。 */
   failStreaming: () => void
   /** 确认候选问题，进入「一次一个」串行扩写。 */
   beginAnnotating: () => void
@@ -125,15 +136,31 @@ export const useStore = create<Store>()((set) => ({
   annotations: [],
   pendingQuestions: [],
   pendingContext: '',
+  streamingQuestion: '',
+  streamingText: '',
 
   openNote: (slug, markdown) => set({ noteSlug: slug, noteMarkdown: markdown }),
-  appendDelta: (text) => set((s) => ({ noteMarkdown: s.noteMarkdown + text })),
+  appendDelta: (text) =>
+    set((s) => ({ streamingText: s.streamingText + text })),
 
   startOptimize: () => set({ phase: 'optimizing', optimizeCard: null }),
   cancelOptimize: () => set({ phase: 'idle', optimizeCard: null }),
-  beginStreaming: () => set({ phase: 'streaming', optimizeCard: null }),
-  finishStreaming: (noteMarkdown) => set({ phase: 'done', noteMarkdown }),
-  failStreaming: () => set({ phase: 'idle' }),
+  beginStreaming: (question) =>
+    set({
+      phase: 'streaming',
+      optimizeCard: null,
+      streamingQuestion: question,
+      streamingText: '',
+    }),
+  finishStreaming: (noteMarkdown) =>
+    set({
+      phase: 'done',
+      noteMarkdown,
+      streamingQuestion: '',
+      streamingText: '',
+    }),
+  failStreaming: () =>
+    set({ phase: 'idle', streamingQuestion: '', streamingText: '' }),
   beginAnnotating: () => set({ phase: 'annotating', optimizeCard: null }),
   finishAnnotating: () =>
     set({ phase: 'idle', annotations: [], pendingQuestions: [] }),

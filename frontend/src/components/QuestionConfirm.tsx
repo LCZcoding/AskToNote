@@ -35,7 +35,7 @@ export default function QuestionConfirm() {
     if (question === '') return
 
     setError('')
-    beginStreaming()
+    beginStreaming(question) // 进入流式：笔记区底部以该问题为标题长出新的 Q/A 块
     setPendingContext('') // 引用片段已消费
 
     // 目标主题与当前打开的不同（新主题 / 并入其它已有主题）：先切换笔记区

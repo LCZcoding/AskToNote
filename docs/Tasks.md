@@ -143,10 +143,11 @@
   - 验证：提问 → 弹出确认卡 → 改问题 → 确认后发出；带引用片段提问时请求体含 `context`、问题留空走默认文案。
   - 实测：`npm run build` → 通过（226 modules）；`npm run lint` → 无告警。`AskBar`：引用片段非空时在输入框上方显示并可「移除」，问题可留空（有引用片段时用默认文案「请详细讲解这段内容」），`optimizeInitial({question,slug,context})` → `setInitialCard`；请求中/有确认卡待处理时禁用按钮，优化成功后清空输入。`QuestionConfirm`：**常驻渲染**（错误提示不随卡片消失），优化后问题可编辑、主题只读显示「并入/新建《title》」+ slug；确认 → `beginStreaming()` → 目标主题与当前不同则先 `getNote` 切换笔记区（404 则空）→ `streamAnswer({question,slug,title,context},{onDelta:appendDelta, onDone:finishStreaming, onError:failStreaming+提示})`。`App` 底部接入 `.app-ask`（QuestionConfirm + AskBar），空态/加载提示改为**仅在未打开主题时**显示（避免提问后与笔记区重叠）。**浏览器实测**（uvicorn :8000 + `npm run dev` :5173，真实调用大模型）：① 空态输入「什么是 Docker 容器？」→「优化」→ 出现确认卡（「新建《Docker 容器》」+ slug `docker`，问题可编辑）；② 改题为「…请用生活化的类比解释。」→「确认并作答」→ `.note-view` 由 205 字**流式增长到 2051 字**并渲染出 `h1`；③ 抓包确认 `POST /api/answer` 请求体为**改后**的 `question` + `slug`/`title`；④ 注入引用片段后**空问题**点「优化」→ 抓包确认 `POST /api/optimize/initial` 的 `question` = 「请详细讲解这段内容」且 `context` 与注入文本一致；⑤ 控制台无报错。验证产物（临时 `docker` 笔记文件 + `notes`/`questions` 行、`main.tsx` 临时注入钩子、临时脚本、两个服务）已清理。
 
-- [ ] **T2.6 流式打字机（笔记区底部实时渲染 + done 覆盖校正）**
+- [x] **T2.6 流式打字机（笔记区底部实时渲染 + done 覆盖校正）**
   - 做：`delta` 直接在**笔记区底部**累积渲染出当前新 Q/A 块；`done` 用后端 `note_markdown` **覆盖校正**；`streaming` 期间禁止标注。
-  - 产出：流式渲染逻辑接入 `NoteView` + `store`。
+  - 产出：流式渲染逻辑接入 `NoteView` + `store`（另加 `NoteView.css` 流式样式、`QuestionConfirm` 改为 `beginStreaming(question)`、Plan §8 同步 `streamingQuestion`/`streamingText` 说明）。
   - 验证：浏览器提问后，回答实时流入笔记区，结束后被校正一次。
+  - 实测：`npm run build`（`tsc -b && vite build`）→ 通过（226 modules）；`npm run lint` → 无告警。实现要点：`store` 新增 **`streamingQuestion`/`streamingText`** 两字段——`appendDelta` 只累加到 `streamingText`（**不写入 `noteMarkdown`**，避免每个 delta 重解析整篇笔记），`beginStreaming(question)` 记下新块标题并清空缓冲，`finishStreaming(note_markdown)` 用后端全文**覆盖** `noteMarkdown` 并清空两字段、`failStreaming` 丢弃缓冲；`NoteView` 在原 `noteMarkdown` 之下、**流式期间**额外渲染 `<section class="note-streaming">`（状态文字「正在作答…（暂不可标注）」+ `<h2>{问题}</h2>` + `streamingText` 的 Markdown + 闪烁光标 `.note-cursor`），并以 `bottomRef.scrollIntoView` 自动滚底；`streaming` 时给 `.note-view` 加 `--streaming` 类（`user-select: none`）禁用划词。**浏览器实测**（uvicorn :8000 + `npm run dev` :5173，真实调用大模型）：① 空态「什么是 Docker 镜像与容器的区别」→ 优化 → 确认卡「新建《Docker 入门》」→ 确认并作答；② 确认后 1s 内即出现 `.note-streaming` 区块，含状态文字、`<h2>` 问题标题与 `.note-cursor`，正文**逐字增长**（多次连拍可见）；③ 流式进行中 `browser_evaluate` 测得 `.note-view` className = `note-view note-view--streaming`、`getComputedStyle(...).userSelect = none`、`.note-streaming`/`.note-cursor` 均存在（**流式期间禁标注生效**）；④ 流式结束后区块消失、类名恢复 `note-view`、`userSelect=auto`；⑤ 落盘笔记 `# Docker 入门` + `## 问题` + 完整正文，即 `done` **覆盖校正**成功（后端日志 `POST /api/answer 200 OK`）。验证产物（`data/notes/docker.md` + `notes`/`questions` 行、两个 dev 服务）已清理。
 
 ---
 

@@ -90,3 +90,42 @@
 .note-view [id^='anno-'] {
   scroll-margin-top: 72px;
 }
+
+/* —— 流式打字机（T2.6）—— */
+
+/* 流式期间禁止划词标注（Plan §8）：屏蔽文本选中。 */
+.note-view--streaming {
+  user-select: none;
+}
+
+/* 笔记区底部实时长出的「当前新 Q/A 块」。 */
+.note-streaming {
+  margin-top: 8px;
+}
+.note-streaming-status {
+  margin: 10px 0 2px;
+  font-size: 13px;
+  color: var(--text);
+  opacity: 0.7;
+}
+
+/* 跟随增量末尾闪烁的光标。 */
+.note-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: note-cursor-blink 1s steps(1, end) infinite;
+}
+@keyframes note-cursor-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
