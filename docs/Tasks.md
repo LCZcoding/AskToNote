@@ -37,10 +37,11 @@
   - 验证：首次运行自动建库；`sqlite3` 打开后 5 张表结构与 Plan §3 一致。
   - 实测：`uv run pytest -q` → `24 passed`（新增 10 个 memory 用例，覆盖建库/表结构/默认值/WAL/唯一约束/幂等/短连接+写锁）；真实建库 `sqlite3` 校验 → 表 `{concepts,user_profile,notes,questions,annotations}` 齐全、`journal_mode=wal`、`user_profile=[(1,'',0)]`。（注：`backend/data/` 为运行期产物，是否纳入 `.gitignore` 待确认。）
 
-- [ ] **T1.4 笔记文件读写**
+- [x] **T1.4 笔记文件读写**
   - 做：`app/notes.py` 实现读文件、创建文件（先写 `# {title}`）、末尾追加 Q/A 区块；**目录不存在时自动创建 `data/notes/`**；加**模块级文件写锁**，且锁**覆盖"读→改→写"整段**（Plan §7）。
-  - 产出：`app/notes.py`。
+  - 产出：`app/notes.py`（另加 `tests/test_notes.py`）。
   - 验证：连续两次追加，文件内容为 `# 标题` + 两个 `## 问题` 区块，无覆盖。
+  - 实测：`uv run pytest -q` → `30 passed`（新增 6 个 notes 用例）；真实运行连续两次追加 → `'# 标题\n\n## Q1\n\nA1\n\n## Q2\n\nA2\n'`，标题 + 两个 `## 问题` 区块、无覆盖；`read_note` 回读一致。
 
 - [ ] **T1.5 段落定位插入**
   - 做：`app/notes.py` 实现定位算法（Plan §4.1）：按空行切段 → 源码 `find(anchor)` 优先 → 逐段脱标记兜底 → 仅命中标题行时改取该标题下首个正文段 → 未命中报错；支持 `depth=deep` 时在锚点段落后插入 `####` 新章节。
