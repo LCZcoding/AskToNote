@@ -3,6 +3,8 @@
 用 `tmp_path` 隔离，不触碰真实的 backend/data/notes/。
 （T1.5 将在此文件追加「段落定位插入」用例。）
 """
+import re
+
 import pytest
 
 import app.notes as notes
@@ -68,25 +70,59 @@ def test_append_creates_dir_when_missing(notes_dir) -> None:
 
 
 def test_insert_after_anchor_when_source_hit() -> None:
-    """源码里能直接搜到 anchor → 插到该词**之后**。"""
+    """源码精确命中 → **双向跳转**：原词前插来源锚点并包成链接，词后插解释侧锚点与「↩」回跳。"""
     content = "# Docker 入门\n\n## 什么是容器\n\n容器是一种轻量化的虚拟化技术。\n"
     out = notes.apply_annotation(content, "轻量化", "（即共享宿主内核）")
-    assert "容器是一种轻量化（即共享宿主内核）的虚拟化技术。" in out
+    m = re.search(r'<a id="anno-([0-9a-f]{8})-src"></a>\[轻量化\]\(#anno-([0-9a-f]{8})\)', out)
+    assert m is not None
+    assert m.group(1) == m.group(2)  # 原词链接指向同一 id
+    n = m.group(1)
+    assert f'<a id="anno-{n}"></a>（即共享宿主内核）[↩](#anno-{n}-src)' in out
+    assert "容器是一种" in out and "的虚拟化技术。" in out
 
 
 def test_insert_at_paragraph_end_when_anchor_crosses_inline_markup() -> None:
-    """anchor 跨行内标记（源码搜不到）→ 逐段脱标记命中 → 插到**段末**。"""
+    """anchor 跨行内标记（源码搜不到）→ 兜底命中 → 段末插解释，且**降级为单向**（无来源锚点/回跳/包词）。"""
     content = "# Docker\n\n## 容器与镜像\n\n**容器**和**镜像**是核心。\n"
     out = notes.apply_annotation(content, "容器和镜像", "（本节要弄清的一对概念）")
-    assert "**容器**和**镜像**是核心。（本节要弄清的一对概念）" in out
+    m = re.search(r'<a id="anno-([0-9a-f]{8})"></a>（本节要弄清的一对概念）', out)
+    assert m is not None
+    assert "**容器**和**镜像**是核心。" in out
+    assert "-src" not in out
+    assert "[↩]" not in out
+    assert "[容器和镜像](#anno-" not in out
+
+
+def test_source_hit_inside_markup_degrades_to_one_way() -> None:
+    """原词源码可命中、但已落在 `**...**` 标记内 → **降级单向**（只插解释侧锚点，不包词、不回跳）。"""
+    content = "# T\n\n## Q\n\n**容器**是核心。\n"
+    out = notes.apply_annotation(content, "容器", "（轻量虚拟化）")
+    m = re.search(r'<a id="anno-([0-9a-f]{8})"></a>（轻量虚拟化）', out)
+    assert m is not None
+    assert out.count("**") == 2  # 原有粗体标记未被破坏
+    assert "-src" not in out
+    assert "[↩]" not in out
+    assert "[容器](#anno-" not in out
+
+
+def test_source_hit_inside_wikilink_degrades_to_one_way() -> None:
+    """原词落在 `[[内链]]` 内 → 降级单向（v1 内链不可点，不得破坏其语法）。"""
+    content = "# T\n\n## Q\n\n参见 [[容器]] 概念。\n"
+    out = notes.apply_annotation(content, "容器", "（轻量虚拟化）")
+    assert "[[容器]]" in out
+    assert "-src" not in out
+    assert "[↩]" not in out
+    assert "[容器](#anno-" not in out
+    assert '<a id="anno-' in out
 
 
 def test_insert_picks_first_occurrence() -> None:
-    """anchor 多次出现 → 取**首次**（只插一处）。"""
+    """anchor 多次出现 → 取**首次**（只包/插一处）。"""
     content = "# T\n\n## Q\n\nalpha beta gamma。\n\nlater alpha beta again。\n"
     out = notes.apply_annotation(content, "alpha beta", "（首次）")
     assert out.count("（首次）") == 1
-    assert "alpha beta（首次） gamma。" in out
+    m = re.search(r'\[alpha beta\]\(#anno-([0-9a-f]{8})\)<a id="anno-\1"></a>（首次）', out)
+    assert m is not None
     assert "later alpha beta again。" in out
 
 
@@ -113,19 +149,25 @@ def test_insert_deep_adds_four_hash_section_after_paragraph() -> None:
         depth="deep",
         new_section={"title": "镜像", "content": "## 细节\n镜像是只读模板。"},
     )
-    assert "容器是核心概念（比喻：集装箱）。" in out
-    # 段落之后紧跟 `####` 章节
-    assert "容器是核心概念（比喻：集装箱）。\n\n#### 镜像\n\n### 细节\n镜像是只读模板。" in out
+    m = re.search(r'<a id="anno-([0-9a-f]{8})-src"></a>\[核心概念\]\(#anno-([0-9a-f]{8})\)', out)
+    assert m is not None
+    n = m.group(1)
+    # 简释末尾的「↩」回跳之后，紧跟 `####` 章节
+    assert f'（比喻：集装箱）[↩](#anno-{n}-src)。\n\n#### 镜像\n\n### 细节\n镜像是只读模板。' in out
     # 正文小节不出现 `##`（已压为 `###`）
     assert "\n## 细节" not in out
 
 
 def test_insert_redirects_when_hit_only_in_heading() -> None:
-    """anchor 仅命中标题行 → 改取该标题下**首个正文段**，插到其段末。"""
+    """anchor 仅命中标题行 → 改取该标题下**首个正文段**，段末插解释侧锚点（单向）。"""
     content = "# Docker\n\n## 容器与镜像\n\n容器是核心概念。\n"
     out = notes.apply_annotation(content, "容器与镜像", "（此处展开）")
     assert "## 容器与镜像" in out
-    assert "容器是核心概念。（此处展开）" in out
+    m = re.search(r'<a id="anno-([0-9a-f]{8})"></a>（此处展开）', out)
+    assert m is not None
+    assert "容器是核心概念。<a id=" in out
+    assert "[容器与镜像](#anno-" not in out
+    assert "-src" not in out
 
 
 def test_insert_deep_requires_new_section() -> None:
@@ -139,7 +181,8 @@ def test_insert_annotation_writes_file_under_lock(notes_dir) -> None:
     notes.create_note("Docker", "docker")
     notes.append_qa_block("docker", "什么是容器", "容器是一种轻量化技术。")
     out = notes.insert_annotation("docker", "轻量化", "（共享内核）")
-    assert "容器是一种轻量化（共享内核）技术。" in out
+    assert "[轻量化](#anno-" in out
+    assert "（共享内核）[↩](#anno-" in out
     assert notes.read_note("docker") == out
 
 

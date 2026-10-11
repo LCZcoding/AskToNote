@@ -99,12 +99,12 @@
   - 实测：`uv run pytest -q` → `82 passed`（+2 例：`test_answer_context_only_enters_prompt_not_question_heading`、`test_optimize_initial_passes_context_into_prompt`；并改 `test_answer_note`/`test_question_optimizer` 的占位符与 NA 计数断言）。真实调用：`POST /api/optimize/initial`（带 `context`）→ 200，优化问题切中引用片段；`curl.exe -N POST /api/answer`（带 `context`）→ `delta*`→`done`，回答围绕引用片段（原文以引用块呈现），落盘笔记标题为 `## (验证) 这段怎么理解`（**不含** `context`）。验证写入的临时主题已清理（文件 + `notes`/`questions` 行）。
 
 
-- [ ] **T1.13 标注双向跳转标记（写入笔记源码，插队）**
+- [x] **T1.13 标注双向跳转标记（写入笔记源码，插队）**
   - 做：`app/notes.py` 的 `apply_annotation` 改造——原词**源码精确命中**时，词前插 `<a id="anno-{n}-src"></a>` 并把原词包成 `[原词](#anno-{n})`；解释处插 `<a id="anno-{n}"></a>`，并在简释末尾追加回跳 `[↩](#anno-{n}-src)`；`n = uuid4().hex[:8]`。**降级**：仅脱标记兜底命中、或原词已在链接/标记内 → **只插解释侧锚点**、不包原词、不加回跳。同步 `tests/test_notes.py`。
   - 背景：Spec FR-9c —— 原词 ⇄ 解释 **双向**可点击跳转，**写入源码**、通用 MD 阅读器可点。
   - 产出：`app/notes.py`（+ `tests/test_notes.py`）。
   - 验证：`uv run pytest tests/test_notes.py` 通过（源码命中 → 双向锚点/链接齐全；兜底命中 → 单向降级）。
-  - 实测：（待填）
+  - 实测：`uv run pytest -q` → `84 passed`（+2 例：`test_source_hit_inside_markup_degrades_to_one_way`、`test_source_hit_inside_wikilink_degrades_to_one_way`；并改 T1.5 原 6 例断言为双向/单向结构）。`_locate` 增返「命中方式 + 原词起点」，`apply_annotation` 据此判定双向；新增 `_is_in_markup`（识别 `[[内链]]`/`[...](...)`/行内代码/粗体）做降级判定。真实调用 `apply_annotation` → 源码命中输出 `<a id="anno-{n}-src"></a>[轻量化](#anno-{n})<a id="anno-{n}"></a>（即共享宿主内核）[↩](#anno-{n}-src)`（与 Plan §4.1 例一致）；兜底/在标记内 → **只插解释侧锚点于段末**（Plan §4.1 降级行已同步注明「统一段末」，避免切断 `**原词**`/`[[原词]]`）。
 
 
 ---
