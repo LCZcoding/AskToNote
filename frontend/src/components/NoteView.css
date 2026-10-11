@@ -109,6 +109,29 @@
   opacity: 0.7;
 }
 
+/* —— 划词气泡（T3.4）—— */
+
+/* 选区上方浮出的「标注」按钮；坐标由 JS 按选区 rect 计算（fixed 定位）。 */
+.note-bubble {
+  position: fixed;
+  z-index: 20;
+  transform: translate(-50%, -100%);
+  padding: 4px 12px;
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+}
+.note-bubble:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
 /* 跟随增量末尾闪烁的光标。 */
 .note-cursor {
   display: inline-block;

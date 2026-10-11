@@ -1,0 +1,57 @@
+/* 标注列表（T3.4）：提问/确认区上方，与引用片段同区（Plan §8）。 */
+
+.anno-list {
+  max-width: 760px;
+  margin: 0 auto 8px;
+}
+
+.anno-list-head {
+  margin-bottom: 4px;
+}
+.anno-list-label {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.anno-list-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 单条标注 = 一个标签 + 「×」移除。 */
+.anno-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  background: var(--accent-bg);
+  font-size: 13px;
+}
+.anno-item-text {
+  overflow: hidden;
+  color: var(--text-h);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.anno-item-remove {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.anno-item-remove:hover {
+  color: #c0392b;
+}

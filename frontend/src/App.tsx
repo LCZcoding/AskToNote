@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react'
 import { getNote, getNotes } from './api'
+import AnnotationList from './components/AnnotationList'
 import AskBar from './components/AskBar'
 import NoteView from './components/NoteView'
 import QuestionConfirm from './components/QuestionConfirm'
@@ -75,6 +76,7 @@ function App() {
 
       {/* 提问 / 问题确认区（Plan §8：同一区域按状态复用） */}
       <div className="app-ask">
+        <AnnotationList />
         <QuestionConfirm />
         <AskBar />
       </div>
