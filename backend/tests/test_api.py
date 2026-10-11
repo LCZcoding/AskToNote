@@ -451,3 +451,131 @@ def test_optimize_annotation_502_when_parse_fails(env) -> None:
     )
     assert resp.status_code == 502
     assert len(holder["llm"].json_calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# T3.3 POST /api/annotate（Plan §4.1 / §6.2 / §7；M3 暂不写概念记忆）
+# ---------------------------------------------------------------------------
+
+
+def _seed_note_with_body(slug: str, title: str, question: str, body: str) -> int:
+    """建文件（含 `# title` + 一个 Q/A 区块）+ 写 notes 记录，返回 note_id。"""
+    _seed_note(slug, title)
+    notes.append_qa_block(slug, question, body)
+    return memory.get_note_by_slug(slug)["id"]
+
+
+def test_annotate_brief_inserts_explanation_and_records(env) -> None:
+    """brief：词后插入简释、落盘与返回一致；写 annotations + questions(source='annotation')。"""
+    client, holder = env
+    _seed_note_with_body("docker", "Docker 入门", "什么是容器", "容器是一种轻量级虚拟化技术。")
+    holder["llm"] = FakeLLM(
+        json_responses=[json.dumps({"insert": {"insert_text": "（容器是轻量级虚拟化单元）"}})]
+    )
+    resp = client.post(
+        "/api/annotate",
+        json={
+            "slug": "docker",
+            "anchor": "容器",
+            "concept": "容器",
+            "kind": "concept",
+            "depth": "brief",
+            "question": "容器是什么",
+        },
+    )
+    assert resp.status_code == 200
+    md = resp.json()["note_markdown"]
+    assert "（容器是轻量级虚拟化单元）" in md
+    assert md == notes.read_note("docker")  # 返回与磁盘一致
+
+    with memory.connection() as conn:
+        a = conn.execute("SELECT note_id, snippet, concept, depth FROM annotations").fetchall()
+        q = conn.execute("SELECT text, concept, source FROM questions").fetchall()
+    assert len(a) == 1 and a[0]["snippet"] == "容器"
+    assert a[0]["concept"] == "容器" and a[0]["depth"] == "brief"
+    ann = [r for r in q if r["source"] == "annotation"]
+    assert len(ann) == 1 and ann[0]["text"] == "容器是什么" and ann[0]["concept"] == "容器"
+
+    call = holder["llm"].json_calls[0]
+    assert call["json_mode"] is True
+    assert "【用户标注的片段】容器" in call["user"]
+    assert "【片段类型】concept" in call["user"]
+    assert "【规范概念名】容器" in call["user"]
+    assert "【了解深度】brief" in call["user"]
+
+
+def test_annotate_deep_adds_four_hash_section(env) -> None:
+    """deep：紧跟段落插入 `####` 章节；其 content 行首标题压为 `###`。"""
+    client, holder = env
+    _seed_note_with_body("docker", "Docker 入门", "什么是容器", "容器是一种轻量级虚拟化技术。")
+    holder["llm"] = FakeLLM(
+        json_responses=[
+            json.dumps(
+                {
+                    "insert": {"insert_text": "（简释）"},
+                    "new_section": {"title": "深入理解", "content": "# 原理\n\n隔离机制。"},
+                }
+            )
+        ]
+    )
+    resp = client.post(
+        "/api/annotate",
+        json={"slug": "docker", "anchor": "容器", "concept": "容器", "kind": "concept", "depth": "deep"},
+    )
+    assert resp.status_code == 200
+    md = resp.json()["note_markdown"]
+    assert "#### 深入理解" in md
+    assert "### 原理" in md
+    assert all(line != "# 原理" for line in md.splitlines())  # content 行首标题已压为 ###
+
+
+def test_annotate_empty_question_falls_back_to_anchor(env) -> None:
+    """`question` 缺省 → `questions.text` 存 anchor；Prompt 渲染 QUESTION_NA。"""
+    client, holder = env
+    _seed_note_with_body("docker", "Docker 入门", "什么是容器", "容器是一种轻量级虚拟化技术。")
+    holder["llm"] = FakeLLM(json_responses=[json.dumps({"insert": {"insert_text": "（简释）"}})])
+    resp = client.post(
+        "/api/annotate",
+        json={"slug": "docker", "anchor": "容器", "concept": "容器", "kind": "concept", "depth": "brief"},
+    )
+    assert resp.status_code == 200
+    with memory.connection() as conn:
+        row = conn.execute(
+            "SELECT text FROM questions WHERE source = 'annotation'"
+        ).fetchone()
+    assert row["text"] == "容器"
+    assert "（未提供，仅凭片段与上下文）" in holder["llm"].json_calls[0]["user"]
+
+
+def test_annotate_404_when_topic_unknown(env) -> None:
+    """未落盘主题 → 404，且不调用 LLM。"""
+    client, holder = env
+    holder["llm"] = FakeLLM(json_responses=[json.dumps({"insert": {"insert_text": "x"}})])
+    resp = client.post("/api/annotate", json={"slug": "nope", "anchor": "x", "depth": "brief"})
+    assert resp.status_code == 404
+    assert holder["llm"].json_calls == []
+
+
+def test_annotate_422_when_anchor_not_found(env) -> None:
+    """锚点定位失败 → 422，且不写 annotations。"""
+    client, holder = env
+    _seed_note_with_body("docker", "Docker 入门", "Q", "正文内容。")
+    holder["llm"] = FakeLLM(json_responses=[json.dumps({"insert": {"insert_text": "x"}})])
+    resp = client.post(
+        "/api/annotate", json={"slug": "docker", "anchor": "不存在的词", "depth": "brief"}
+    )
+    assert resp.status_code == 422
+    with memory.connection() as conn:
+        assert conn.execute("SELECT COUNT(*) AS c FROM annotations").fetchone()["c"] == 0
+
+
+def test_annotate_502_when_parse_fails(env) -> None:
+    """两次都非法 → 502（前端提示）。"""
+    client, holder = env
+    _seed_note_with_body("docker", "Docker 入门", "Q", "正文内容。")
+    holder["llm"] = FakeLLM(json_responses=["坏输出一", "坏输出二"])
+    resp = client.post(
+        "/api/annotate", json={"slug": "docker", "anchor": "正文", "depth": "brief"}
+    )
+    assert resp.status_code == 502
+    assert len(holder["llm"].json_calls) == 2

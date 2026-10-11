@@ -227,3 +227,14 @@ def insert_question(note_id: int, text: str, concept: str | None, source: str) -
             (note_id, text, concept, source, _now()),
         )
         return int(cur.lastrowid)
+
+
+def insert_annotation(note_id: int, snippet: str, concept: str | None, depth: str) -> int:
+    """写入一条标注记录（Plan §3 `annotations`），返回新行 id。"""
+    with write_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO annotations (note_id, snippet, concept, depth, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (note_id, snippet, concept, depth, _now()),
+        )
+        return int(cur.lastrowid)

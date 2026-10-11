@@ -368,7 +368,7 @@ POST /api/annotate:
   1. 读笔记 → 调解答笔记智能体(模式②) 得 {insert, new_section?}（`question` 可为空——为空时按 §6 渲染约定替换为「（未提供，仅凭片段与上下文）」）
   2. 定位插入点（**优先词后、兜底段末**）→ 插入 insert_text；deep 则紧跟该段落之后插入 new_section 章节（**章节标题固定 `####`**，其 `content` 的行首标题同样**压为 `###`**（**代码围栏内除外**））
   3. 写 memory（**concept 与 kind 均来自请求**，由模式B 给出）+ 写 annotations（note_id/snippet/concept/depth）：概念**分数不变**；**不在库 → score=10**；两种情况**均 pending=1**（`kind=concept` 与 `kind=statement` 同规则）
-  4. 返回更新后的 note_markdown；写 questions(source='annotation')
+  4. 返回更新后的 note_markdown；写 questions(source='annotation'，`text` 取请求 `question`、**为空时退回 `anchor`**，`concept` 取请求值)
 
 GET /api/memory:
   读 user_profile + concepts（含等级）→ 返回 { background, concepts:[{name, score, level}] }

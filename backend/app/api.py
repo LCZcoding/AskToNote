@@ -3,7 +3,8 @@
 - `POST /api/answer`（T1.7）：SSE 流式作答 + 落盘；
 - `GET /api/note/{slug}`、`GET /api/notes`（T1.9）：读接口；
 - `POST /api/optimize/initial`（T1.10）：模式A 优化初始问题 + 命名主题；
-- `POST /api/optimize/annotation`（T3.2）：模式B 标注 → 候选问题。
+- `POST /api/optimize/annotation`（T3.2）：模式B 标注 → 候选问题；
+- `POST /api/annotate`（T3.3）：模式②标注扩写 + 落盘。
 
 并发模型（Plan §7「接口实现约定」）：接口用**同步 `def`**，由 FastAPI 自动放入线程池，
 同步 LLM/文件/DB 等待只占用工作线程、不阻塞事件循环；SSE 用 `StreamingResponse` 配
@@ -19,7 +20,7 @@ from pydantic import BaseModel
 
 from app import memory, notes
 from app.agents import question_optimizer
-from app.agents.answer_note import answer_note_stream
+from app.agents.answer_note import annotate, answer_note_stream
 from app.config import settings
 from app.llm import DeepSeekClient, LLMClient
 from app.parse import JsonParseError
@@ -233,3 +234,67 @@ def optimize_annotation(
     except JsonParseError as exc:
         raise HTTPException(status_code=502, detail=f"候选问题生成失败：{exc}")
     return {"questions": [q.model_dump() for q in result.questions]}
+
+
+class AnnotateRequest(BaseModel):
+    """`POST /api/annotate` 入参（Plan §4.1）：标注片段 + 片段类型/概念/深度（均由模式B 给出）。
+
+    `question` 可选——为空时模式② Prompt 渲染 QUESTION_NA，`questions.text` 退回存 `anchor`。
+    """
+
+    slug: str
+    anchor: str
+    concept: str = ""
+    kind: str = "concept"
+    depth: str = "brief"
+    question: str = ""
+
+
+@router.post("/annotate")
+def annotate_route(req: AnnotateRequest, llm: LLMClient = Depends(get_llm)) -> dict:
+    """模式②标注扩写 + 落盘（Plan §7）。
+
+    顺序 = 读笔记 → 模式② → 定位插入（brief 插简释 / deep 加 `####` 章节）→
+    写 `annotations` 与 `questions(source='annotation')` → 刷新 `notes.updated_at` → 返回全文。
+    **M3 暂不写概念记忆**（`concepts`/`pending` 由 M4 T4.6 接入）。
+    """
+    record = memory.get_note_by_slug(req.slug)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"主题不存在：{req.slug}")
+    try:
+        note_markdown = notes.read_note(req.slug)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"笔记文件缺失：{req.slug}")
+
+    background = memory.get_background()
+    concepts_mastered, concepts_learning = memory.concepts_by_mastery()
+    try:
+        result = annotate(
+            llm,
+            note_markdown=note_markdown,
+            anchor=req.anchor,
+            kind=req.kind,
+            concept=req.concept,
+            depth=req.depth,
+            background=background,
+            concepts_mastered=concepts_mastered,
+            concepts_learning=concepts_learning,
+            question=req.question,
+        )
+    except JsonParseError as exc:
+        raise HTTPException(status_code=502, detail=f"标注扩写失败：{exc}")
+
+    new_section = result.new_section.model_dump() if result.new_section else None
+    try:
+        updated = notes.insert_annotation(
+            req.slug, req.anchor, result.insert.insert_text, req.depth, new_section
+        )
+    except notes.AnchorNotFoundError as exc:
+        raise HTTPException(status_code=422, detail=f"锚点定位失败：{exc}")
+
+    note_id = record["id"]
+    concept = req.concept or None
+    memory.insert_annotation(note_id, req.anchor, concept, req.depth)
+    memory.insert_question(note_id, req.question or req.anchor, concept, "annotation")
+    memory.touch_note(req.slug)
+    return {"note_markdown": updated}
