@@ -141,3 +141,20 @@ def test_insert_annotation_writes_file_under_lock(notes_dir) -> None:
     out = notes.insert_annotation("docker", "轻量化", "（共享内核）")
     assert "容器是一种轻量化（共享内核）技术。" in out
     assert notes.read_note("docker") == out
+
+
+# ---------------------------------------------------------------------------
+# compress_headings：行首标题压 `###`，但代码围栏内除外（Plan §7）
+# ---------------------------------------------------------------------------
+
+
+def test_compress_headings_compresses_outside_fence_only() -> None:
+    """围栏外的行首标题压为 `###`；围栏内（``` 与 ~~~）的 `#` 注释原样保留。"""
+    text = "# 标题\n\n```bash\n# 注释\ndocker run x\n```\n\n## 小节\n\n~~~\n# 波浪围栏内的注释\n~~~\n"
+    out = notes.compress_headings(text)
+    assert "### 标题" in out
+    assert "### 小节" in out
+    assert "\n# 注释\n" in out  # 反引号围栏内未被压
+    assert "\n# 波浪围栏内的注释\n" in out  # 波浪围栏内未被压
+    assert "### 注释" not in out
+    assert "### 波浪围栏内的注释" not in out

@@ -57,6 +57,9 @@ def append_qa_block(slug: str, question: str, body: str) -> str:
 # 行首标题符（`#`/`##`/…，含其后空白）；用于「脱标记匹配」与「压标题」。
 _HEADING_PREFIX_RE = re.compile(r"(?m)^#{1,6}[ \t]*")
 
+# 代码围栏起始行（``` 或 ~~~，允许最多 3 个前导空格）。
+_FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+
 
 class AnchorNotFoundError(Exception):
     """锚点在笔记中定位不到（前端应提示用户重新选择片段）。"""
@@ -78,8 +81,27 @@ def _strip_inline_markup(text: str) -> str:
 
 
 def compress_headings(text: str) -> str:
-    """把正文中的**行首标题一律压为 `###`**（Plan §7；正文小节最高 `###`）。"""
-    return _HEADING_PREFIX_RE.sub("### ", text)
+    """把正文中的**行首标题一律压为 `###`**（Plan §7；正文小节最高 `###`）。
+
+    **代码围栏（``` / ~~~）内的行原样保留**——避免把代码里的 `#` 注释（bash/dockerfile/yaml 等）
+    误压为标题。
+    """
+    out: list[str] = []
+    fence: str | None = None  # 当前所处围栏的标记字符（None = 不在围栏内）
+    for line in text.split("\n"):
+        m = _FENCE_RE.match(line)
+        if m:
+            marker = m.group(1)
+            if fence is None:
+                fence = marker[0]
+            elif marker[0] == fence:
+                fence = None
+            out.append(line)
+        elif fence is None:
+            out.append(_HEADING_PREFIX_RE.sub("### ", line))
+        else:
+            out.append(line)
+    return "\n".join(out)
 
 
 def _split_paragraphs(content: str) -> list[tuple[int, int]]:

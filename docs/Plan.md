@@ -345,14 +345,14 @@ POST /api/answer (SSE):
   1. 校验 question/slug/title（slug/title 由模式A 给出）
   2. 读 memory(concepts 按 score 分【已掌握】/【尚不熟悉】+background)、读 notes(当前主题 MD)、列出其他主题(slug/title) 供内链
   3. 调解答笔记智能体 chat_stream() → 逐块作为 delta 事件推送
-  4. 流结束：**先清洗正文**——把正文中**行首标题（`#`/`##`/`###`…）一律压为 `###`**（`#`/`##` 由程序掌控，避免与 `## {问题}` 同级混淆）；若正文开头是重复的问题标题行则删除；整体被 ``` 代码围栏包裹则去围栏。再以 `## {问题}` + 清洗后正文 组成 Q/A 区块——slug 已存在 → 追加到文件末尾；新 slug → 新建文件（先写 `# {title}`）与 notes 记录；**均刷新 notes.updated_at**（新建时写 created_at）；写 questions(source='initial'，concept 置 NULL)；发 done
+  4. 流结束：**先清洗正文**——把正文中**行首标题（`#`/`##`/`###`…）一律压为 `###`**（`#`/`##` 由程序掌控，避免与 `## {问题}` 同级混淆；**代码围栏 ``` / ~~~ 内的行除外**，避免把代码里的 `#` 注释误压为标题）；若正文开头是重复的问题标题行则删除；整体被 ``` 代码围栏包裹则去围栏。再以 `## {问题}` + 清洗后正文 组成 Q/A 区块——slug 已存在 → 追加到文件末尾；新 slug → 新建文件（先写 `# {title}`）与 notes 记录；**均刷新 notes.updated_at**（新建时写 created_at）；写 questions(source='initial'，concept 置 NULL)；发 done
 
 POST /api/optimize/annotation:（模式B）
   读 note_markdown + snippets + concepts(**仅名称**) → 调优化B → 返回 questions[]
 
 POST /api/annotate:
   1. 读笔记 → 调解答笔记智能体(模式②) 得 {insert, new_section?}（`question` 可为空——为空时按 §6 渲染约定替换为「（未提供，仅凭片段与上下文）」）
-  2. 定位插入点（**优先词后、兜底段末**）→ 插入 insert_text；deep 则紧跟该段落之后插入 new_section 章节（**章节标题固定 `####`**，其 `content` 的行首标题同样**压为 `###`**）
+  2. 定位插入点（**优先词后、兜底段末**）→ 插入 insert_text；deep 则紧跟该段落之后插入 new_section 章节（**章节标题固定 `####`**，其 `content` 的行首标题同样**压为 `###`**（**代码围栏内除外**））
   3. 写 memory（**concept 与 kind 均来自请求**，由模式B 给出）+ 写 annotations（note_id/snippet/concept/depth）：概念**分数不变**；**不在库 → score=10**；两种情况**均 pending=1**（`kind=concept` 与 `kind=statement` 同规则）
   4. 返回更新后的 note_markdown；写 questions(source='annotation')
 

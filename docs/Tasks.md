@@ -55,10 +55,12 @@
   - 验证：直接调用该函数能流式产出 Markdown 文本，无 JSON/代码块包裹。
   - 实测：`uv run pytest -q` → `43 passed`（新增 4 个用例，mock LLM）；真实调用 `answer_note_stream` → 1314 个增量、共 2808 字，输出纯 Markdown（首行 `### …`，无 JSON、无代码围栏）。空值统一渲染「（暂无）」、`{slug}` 空前缀保留。（占位符替换用 `str.replace`，规避后续 JSON 模板的花括号冲突。）
 
-- [ ] **T1.7 回答落盘 + SSE 接口**
+- [x] **T1.7 回答落盘 + SSE 接口**
   - 做：`app/api.py` + `main.py` 挂载路由与 CORS；`POST /api/answer` 按 Plan §4.1 返回 SSE（`data: {JSON}`，`type` = `delta`/`done`/`error`）；流结束执行 Plan §7 的**正文清洗**（行首标题一律压为 `###`、删开头重复问题标题、去整体代码围栏）→ 组 `## {问题}` + 正文**追加/新建文件**（新 slug 先写 `# {title}`；**已存在则 `title` 以 `notes` 表为准**）→ 写 `notes` 记录（新建写 `created_at`，两种情况**均刷新 `updated_at`**）→ 写 `questions(source='initial')`（`concept` 置 NULL）→ 发 `done{note_markdown}`。
-  - 产出：`app/api.py`、`main.py`。
+  - 产出：`app/api.py`、`main.py`（另加 `tests/test_api.py`；`app/memory.py` 增加读/写 helper：`level_from_score`/`get_background`/`list_concepts`/`concepts_by_mastery`/`list_notes`/`get_note_by_slug`/`insert_note`/`touch_note`/`insert_question`）。
   - 验证：`curl -N` 能逐条看到 `delta`，末条 `done` 带 `note_markdown`，磁盘生成 `data/notes/{slug}.md`，`notes`/`questions` 表各增一行。（`slug`/`title` 可用 T1.10 的模式A 取得，或 curl 手动传。）
+  - 实测：`uv run pytest -q` → `52 passed`（新增 9 个用例：`test_api` 7 + `compress_headings` 围栏感知 1 + `_clean_body` 围栏内保留 1；真实 curl 验证另见下）。真实 `curl.exe -N POST /api/answer`（端口 8001）→ 2194 个 `delta` + 末条 `done`（带 `note_markdown`）；磁盘生成 `data/notes/docker.md`（16059 字节）；`notes` 1 行、`questions` 2 行（两次请求，`source=initial`、`concept=NULL`）。**真实验证暴露并已修**：正文清洗曾把**代码围栏内的 `#` 注释**（如 bash）也压成 `###`，破坏代码示例 → 经用户确认选 **A（跳过围栏内）**：先改 Plan §7 措辞（“代码围栏内的行除外”），再令 `compress_headings` 识别 ``` / ~~~ 围栏、围栏内原样保留（`_clean_body` 顺序调整为“先压标题、后去整体围栏、再删重复标题”）。
+
 
 - [ ] **T1.8 JSON 输出约束 + 解析容错 + 单测收口**
   - 做：`llm.py` 的 `chat` 加 `json_mode` 参数（带 `response_format={"type":"json_object"}`，Plan §5）；定义四个 JSON 调用的 Pydantic 模型（模式A/模式B/模式②/背景推断，schema 见 Plan §6）；解析容错工具（剥离 ```` ```json ```` 包裹、容忍多余文字）+ 校验不过**回喂错误重试 1 次** + 字段缺失默认值兜底（Plan §7「JSON 输出约束」）；`tests/test_parse.py`；跑通全部后端单测。

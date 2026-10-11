@@ -8,6 +8,7 @@ import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime, timezone
 
 from app.config import settings
 
@@ -118,3 +119,104 @@ def write_connection() -> Iterator[sqlite3.Connection]:
     with _write_lock:
         with _connect() as conn:
             yield conn
+
+
+# ---------------------------------------------------------------------------
+# T1.7 记忆读 / 主题与问题写 helper（供 /api/answer 落盘与 Prompt 组装，Plan §7）
+# ---------------------------------------------------------------------------
+
+
+def level_from_score(score: int) -> str:
+    """由分数推导等级（Plan §3）：<20 unfamiliar | 20-49 blurry | 50-79 familiar | ≥80 mastered。"""
+    if score < 20:
+        return "unfamiliar"
+    if score < 50:
+        return "blurry"
+    if score < 80:
+        return "familiar"
+    return "mastered"
+
+
+def _now() -> str:
+    """UTC ISO 时间戳（字典序可比，便于 `updated_at` 倒序）。"""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def get_background() -> str:
+    """读用户背景（user_profile 单行 id=1）。"""
+    with connection() as conn:
+        row = conn.execute("SELECT background FROM user_profile WHERE id = 1").fetchone()
+    return row["background"] if row else ""
+
+
+def list_concepts() -> list[dict]:
+    """全部概念 `[{name, score, level}]`（`level` 后端推导；不含内部字段 `pending`）。"""
+    with connection() as conn:
+        rows = conn.execute("SELECT name, score FROM concepts ORDER BY name").fetchall()
+    return [
+        {"name": r["name"], "score": r["score"], "level": level_from_score(r["score"])}
+        for r in rows
+    ]
+
+
+def concepts_by_mastery() -> tuple[list[dict], list[dict]]:
+    """按 `score` 切分为 Prompt 两类（Plan §6 渲染约定）。
+
+    返回 `(已掌握, 尚不熟悉)`，元素为 `{name, level}`：`score≥50` → 已掌握；`<50` → 尚不熟悉。
+    """
+    mastered: list[dict] = []
+    learning: list[dict] = []
+    for c in list_concepts():
+        item = {"name": c["name"], "level": c["level"]}
+        (mastered if c["score"] >= 50 else learning).append(item)
+    return mastered, learning
+
+
+def list_notes() -> list[dict]:
+    """全部主题，按 `updated_at` 倒序（最新在前）；元素含 id/title/slug/file_path/时间戳。"""
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT id, title, slug, file_path, created_at, updated_at "
+            "FROM notes ORDER BY updated_at DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_note_by_slug(slug: str) -> dict | None:
+    """按 slug 取主题记录；不存在返回 None。"""
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT id, title, slug, file_path, created_at, updated_at "
+            "FROM notes WHERE slug = ?",
+            (slug,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def insert_note(title: str, slug: str, file_path: str) -> int:
+    """新建主题记录（`created_at`/`updated_at` 均写当前时间），返回新行 id。"""
+    now = _now()
+    with write_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO notes (title, slug, file_path, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (title, slug, file_path, now, now),
+        )
+        return int(cur.lastrowid)
+
+
+def touch_note(slug: str) -> None:
+    """刷新主题记录的 `updated_at`（Plan §7：追加与新建均刷新）。"""
+    with write_connection() as conn:
+        conn.execute("UPDATE notes SET updated_at = ? WHERE slug = ?", (_now(), slug))
+
+
+def insert_question(note_id: int, text: str, concept: str | None, source: str) -> int:
+    """写入一条问题索引（Plan §3 `questions`），返回新行 id。"""
+    with write_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO questions (note_id, text, concept, source, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (note_id, text, concept, source, _now()),
+        )
+        return int(cur.lastrowid)

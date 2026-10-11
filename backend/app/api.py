@@ -1,0 +1,129 @@
+"""T1.7 路由层：`POST /api/answer`（SSE 流式作答 + 落盘，Plan §4.1 / §7）。
+
+并发模型（Plan §7「接口实现约定」）：接口用**同步 `def`**，由 FastAPI 自动放入线程池，
+同步 LLM/文件/DB 等待只占用工作线程、不阻塞事件循环；SSE 用 `StreamingResponse` 配
+**同步生成器**，由 Starlette 逐块取数推送。
+"""
+import json
+import re
+from collections.abc import Iterator
+
+from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
+from app import memory, notes
+from app.agents.answer_note import answer_note_stream
+from app.config import settings
+from app.llm import DeepSeekClient, LLMClient
+
+router = APIRouter(prefix="/api")
+
+# 行首标题符（`#`/`##`/…，含其后空白）；用于识别/剥离开头的重复问题标题行。
+_HEADING_PREFIX_RE = re.compile(r"^#{1,6}\s*")
+
+
+def get_llm() -> LLMClient:
+    """LLM 依赖项（可被测试 `dependency_overrides` 替换，避免真实计费）。"""
+    return DeepSeekClient(
+        settings.deepseek_api_key, settings.model, settings.deepseek_base_url
+    )
+
+
+class AnswerRequest(BaseModel):
+    """`POST /api/answer` 入参：已确认的优化问题 + 主题（slug/title 由模式A 给出）。"""
+
+    question: str
+    slug: str
+    title: str
+
+
+def _sse(payload: dict) -> str:
+    """序列化为 SSE 线格式：一行 `data: {JSON}` + 空行（Plan §4.1，不用 `event:` 名）。"""
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _strip_code_fence(text: str) -> str:
+    """整体被 ``` 代码围栏包裹时去掉围栏（Plan §7 步骤4）；否则原样返回。"""
+    stripped = text.strip()
+    if not (stripped.startswith("```") and stripped.endswith("```")):
+        return text
+    lines = stripped.split("\n")
+    if len(lines) < 2:
+        return text
+    return "\n".join(lines[1:-1])
+
+
+def _clean_body(raw: str, question: str) -> str:
+    """正文清洗（Plan §7 步骤4）：行首标题压 `###`（围栏内除外）→ 去整体代码围栏 → 删开头重复问题标题。"""
+    body = notes.compress_headings(raw).strip("\n")
+    body = _strip_code_fence(body).strip("\n")
+    lines = body.split("\n")
+    first = lines[0].strip()
+    if first.startswith("#") and _HEADING_PREFIX_RE.sub("", first).strip() == question.strip():
+        body = "\n".join(lines[1:]).lstrip("\n")
+    return body.strip("\n")
+
+
+def _read_note_or_empty(slug: str) -> str:
+    """读当前主题笔记全文；文件不存在（新主题首问）返回空串。"""
+    path = notes.note_path(slug)
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def _persist_answer(req: AnswerRequest, body: str) -> str:
+    """落盘 Q/A 区块与索引记录（Plan §7 步骤4），返回落盘后的笔记全文。
+
+    - slug 已存在（**以 `notes` 表为准**）→ 追加到文件末尾，`title` 忽略请求值；
+    - 新 slug → 先 `create_note` 写 `# {title}`，再新建 `notes` 记录（写 `created_at`）；
+    - 两种情况均刷新 `updated_at`，并写 `questions(source='initial', concept=NULL)`。
+    """
+    existing = memory.get_note_by_slug(req.slug)
+    if existing is None:
+        notes.create_note(req.title, req.slug)
+        note_id = memory.insert_note(req.title, req.slug, str(notes.note_path(req.slug)))
+    else:
+        note_id = existing["id"]
+
+    note_markdown = notes.append_qa_block(req.slug, req.question, body)
+    memory.touch_note(req.slug)
+    memory.insert_question(note_id, req.question, None, "initial")
+    return note_markdown
+
+
+@router.post("/answer")
+def answer(req: AnswerRequest, llm: LLMClient = Depends(get_llm)) -> StreamingResponse:
+    """模式①作答：SSE 逐块推送 `delta`，流结束后落盘并推送 `done`（Plan §7）。"""
+
+    def event_stream() -> Iterator[str]:
+        try:
+            background = memory.get_background()
+            concepts_mastered, concepts_learning = memory.concepts_by_mastery()
+            topics = [
+                {"slug": n["slug"], "title": n["title"]}
+                for n in memory.list_notes()
+                if n["slug"] != req.slug
+            ]
+            note_markdown = _read_note_or_empty(req.slug)
+
+            chunks: list[str] = []
+            for delta in answer_note_stream(
+                llm,
+                title=req.title,
+                slug=req.slug,
+                background=background,
+                concepts_mastered=concepts_mastered,
+                concepts_learning=concepts_learning,
+                topics=topics,
+                note_markdown=note_markdown,
+            ):
+                chunks.append(delta)
+                yield _sse({"type": "delta", "text": delta})
+
+            body = _clean_body("".join(chunks), req.question)
+            note_md = _persist_answer(req, body)
+            yield _sse({"type": "done", "note_markdown": note_md})
+        except Exception as exc:  # 统一以 error 事件收尾（Plan §4.1）
+            yield _sse({"type": "error", "message": str(exc)})
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
