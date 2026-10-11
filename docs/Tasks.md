@@ -155,10 +155,11 @@
 
 **验证标准（Plan §10）**：标注后生成候选问题、确认深度、笔记原地扩写。
 
-- [ ] **T3.1 模式②扩写智能体 + Prompt**
+- [x] **T3.1 模式②扩写智能体 + Prompt**
   - 做：`prompts.py` 落 Plan §6.2 模板；`answer_note.py` 加模式②方法：输入 `note_markdown`/`anchor`/`question`/`kind`/`concept`/`depth` + 背景与两类概念 → 输出 JSON `{insert:{insert_text}, new_section?}`（`brief` 无 `new_section`）。
-  - 产出：模式② Prompt 与方法。
+  - 产出：模式② Prompt 与方法（另加 `tests/test_annotate.py`）。
   - 验证：`brief`/`deep` 各调一次，返回结构符合契约且解析成功。
+  - 实测：`uv run pytest -q` → `90 passed`（新增 6 个 `test_annotate` 用例）。`prompts.py` 新增 `ANNOTATE_TEMPLATE`（逐字对齐 Plan §6.2）与 `render_annotate_prompt`，并新增 `QUESTION_NA`（=「（未提供，仅凭片段与上下文）」）与 `_or_question_na`——模式② 的 `question` **可选**，为空时按 Plan §6 渲染约定走该专用默认（其余占位符空值仍「（暂无）」）；`answer_note.py` 加 `annotate()`（组装 Prompt → `chat_json(ANNOTATE_SYSTEM_PROMPT, user, AnnotateResult)`，复用 T1.8 的 JSON 约束与回喂重试），原模式① `SYSTEM_PROMPT` 更名 `ANSWER_SYSTEM_PROMPT` 以免同模块两模式歧义。**真实调用**（临时脚本，验证后已删）`annotate(...)`：`depth=brief` → `AnnotateResult`，`insert_text` 为一两句简要解释、`new_section is None`；`depth=deep` → `insert_text` + `new_section{title, content}`（title「容器到底是什么：从进程隔离到镜像运行实例」、content 为完整 Markdown 深讲），结构符合 §6.2 契约、解析成功。（本任务只做智能体与 Prompt；`/api/annotate` 路由与落盘在 **T3.3**。）
 
 - [ ] **T3.2 模式B 接口（标注 → 候选问题）**
   - 做：`prompts.py` 落 Plan §6.4 模板；`question_optimizer.py` 实现模式B 方法；`POST /api/optimize/annotation`：入参 `{snippets[], note_markdown}` → 出参 `{questions:[{text,concept,kind,reason}]}`（**一标注一问题、不合并**）；组装时注入 `{concepts_existing}`——读 `concepts` 表**仅名称清单**（Plan §6.4/§7），使模式B **优先复用已有概念名**。

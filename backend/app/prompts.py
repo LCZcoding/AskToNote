@@ -3,11 +3,14 @@
 模板按 Plan §6 逐字落地；渲染遵循 §6「占位符渲染约定」：
 - `{topics}` → `"slug: title"`；
 - `{concepts_mastered}` / `{concepts_learning}` → `名称(等级)`；
-- 空值（`{question}`、`{slug}` 除外）统一渲染为「（暂无）」。
+- 空值（`{slug}`、`{question}` 除外）统一渲染为「（暂无）」；`{question}` 为空时渲染为
+  QUESTION_NA（「（未提供，仅凭片段与上下文）」）。
 """
 from collections.abc import Iterable, Mapping
 
 NA = "（暂无）"
+# `{question}` 的专用空值默认（Plan §6 渲染约定；模式② 的 question 可选）。
+QUESTION_NA = "（未提供，仅凭片段与上下文）"
 
 
 def _fill(template: str, values: Mapping[str, str]) -> str:
@@ -22,6 +25,12 @@ def _or_na(value: str | None) -> str:
     """空字符串/空白 → 「（暂无）」。"""
     text = (value or "").strip()
     return text if text else NA
+
+
+def _or_question_na(value: str | None) -> str:
+    """`{question}` 空值 → QUESTION_NA（Plan §6 渲染约定）。"""
+    text = (value or "").strip()
+    return text if text else QUESTION_NA
 
 
 def format_concepts(concepts: Iterable[Mapping[str, str]]) -> str:
@@ -87,6 +96,67 @@ def render_answer_note_prompt(
             "note_markdown": _or_na(note_markdown),
             "question": question,
             "context": _or_na(context),
+        },
+    )
+
+
+# --- Plan §6.2 解答笔记智能体 — 模式②标注扩写（JSON） -------------------------
+
+ANNOTATE_TEMPLATE = """你是笔记扩写助手。用户在笔记中标注了陌生片段，请生成局部的解释内容。
+
+【笔记全文】{note_markdown}
+【用户标注的片段】{anchor}
+【针对该片段的问题】{question}
+【片段类型】{kind}   // concept=概念（词/术语）；statement=说法（一句话/判断）
+【规范概念名】{concept}
+【用户背景】{background}
+【已掌握概念】{concepts_mastered}   // score≥50，如 "容器(familiar)"
+【尚不熟悉的概念】{concepts_learning}   // score<50，多为用户标注过、尚未学会的词
+【了解深度】{depth}   // brief=简单了解；deep=深入了解
+
+【要求】
+1. `kind=concept` 给出简短解释；`kind=statement` 解释该**说法本身**，并可顺带点出相关概念 `{concept}`。
+2. 按【用户背景】与掌握度决定讲解深度，必要时用其熟悉领域做类比；对【尚不熟悉的概念】要讲透。
+3. 只输出 JSON：
+{
+  "insert": { "insert_text": "（简要解释，一两句话）" },
+  "new_section": { "title": "小标题", "content": "深入讲解的 Markdown" }
+}
+   - depth=brief 时不要输出 new_section 字段。
+   - depth=deep 时输出 new_section，程序会把它作为新小标题章节（**标题固定 `####`**）、紧跟锚点所在段落之后插入。
+   - `insert_text` 的插入位置由后端统一决定（**优先词后、兜底段末**），你无需精确控制。
+"""
+
+
+def render_annotate_prompt(
+    *,
+    note_markdown: str,
+    anchor: str,
+    kind: str,
+    concept: str,
+    depth: str,
+    background: str,
+    concepts_mastered: Iterable[Mapping[str, str]],
+    concepts_learning: Iterable[Mapping[str, str]],
+    question: str = "",
+) -> str:
+    """渲染模式②标注扩写的 user prompt（§6.2）。
+
+    `question`（可选）为空时渲染为 QUESTION_NA（Plan §6 渲染约定）；
+    其余占位符空值统一渲染为「（暂无）」。
+    """
+    return _fill(
+        ANNOTATE_TEMPLATE,
+        {
+            "note_markdown": _or_na(note_markdown),
+            "anchor": _or_na(anchor),
+            "question": _or_question_na(question),
+            "kind": _or_na(kind),
+            "concept": _or_na(concept),
+            "background": _or_na(background),
+            "concepts_mastered": format_concepts(concepts_mastered),
+            "concepts_learning": format_concepts(concepts_learning),
+            "depth": _or_na(depth),
         },
     )
 
