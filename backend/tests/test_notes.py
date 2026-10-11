@@ -60,3 +60,84 @@ def test_append_creates_dir_when_missing(notes_dir) -> None:
     content = notes.append_qa_block("fresh", "Q", "A")
     assert notes_dir.exists()
     assert notes.read_note("fresh") == content
+
+
+# ---------------------------------------------------------------------------
+# T1.5 段落定位插入（Plan §4.1：优先词后、兜底段末）
+# ---------------------------------------------------------------------------
+
+
+def test_insert_after_anchor_when_source_hit() -> None:
+    """源码里能直接搜到 anchor → 插到该词**之后**。"""
+    content = "# Docker 入门\n\n## 什么是容器\n\n容器是一种轻量化的虚拟化技术。\n"
+    out = notes.apply_annotation(content, "轻量化", "（即共享宿主内核）")
+    assert "容器是一种轻量化（即共享宿主内核）的虚拟化技术。" in out
+
+
+def test_insert_at_paragraph_end_when_anchor_crosses_inline_markup() -> None:
+    """anchor 跨行内标记（源码搜不到）→ 逐段脱标记命中 → 插到**段末**。"""
+    content = "# Docker\n\n## 容器与镜像\n\n**容器**和**镜像**是核心。\n"
+    out = notes.apply_annotation(content, "容器和镜像", "（本节要弄清的一对概念）")
+    assert "**容器**和**镜像**是核心。（本节要弄清的一对概念）" in out
+
+
+def test_insert_picks_first_occurrence() -> None:
+    """anchor 多次出现 → 取**首次**（只插一处）。"""
+    content = "# T\n\n## Q\n\nalpha beta gamma。\n\nlater alpha beta again。\n"
+    out = notes.apply_annotation(content, "alpha beta", "（首次）")
+    assert out.count("（首次）") == 1
+    assert "alpha beta（首次） gamma。" in out
+    assert "later alpha beta again。" in out
+
+
+def test_insert_raises_when_anchor_not_found() -> None:
+    """anchor 在任何段落都找不到 → 报错（前端提示重选）。"""
+    content = "# T\n\n## Q\n\n正文内容。\n"
+    with pytest.raises(notes.AnchorNotFoundError):
+        notes.apply_annotation(content, "不存在的片段", "（x）")
+
+
+def test_insert_raises_when_anchor_empty() -> None:
+    """空 anchor 一律报错，避免误命中首个段落。"""
+    with pytest.raises(notes.AnchorNotFoundError):
+        notes.apply_annotation("# T\n\n正文。\n", "   ", "（x）")
+
+
+def test_insert_deep_adds_four_hash_section_after_paragraph() -> None:
+    """depth=deep → 段落之后紧跟一个 `####` 新章节，其 content 行首标题压为 `###`。"""
+    content = "# Docker\n\n## 容器\n\n容器是核心概念。\n"
+    out = notes.apply_annotation(
+        content,
+        "核心概念",
+        "（比喻：集装箱）",
+        depth="deep",
+        new_section={"title": "镜像", "content": "## 细节\n镜像是只读模板。"},
+    )
+    assert "容器是核心概念（比喻：集装箱）。" in out
+    # 段落之后紧跟 `####` 章节
+    assert "容器是核心概念（比喻：集装箱）。\n\n#### 镜像\n\n### 细节\n镜像是只读模板。" in out
+    # 正文小节不出现 `##`（已压为 `###`）
+    assert "\n## 细节" not in out
+
+
+def test_insert_redirects_when_hit_only_in_heading() -> None:
+    """anchor 仅命中标题行 → 改取该标题下**首个正文段**，插到其段末。"""
+    content = "# Docker\n\n## 容器与镜像\n\n容器是核心概念。\n"
+    out = notes.apply_annotation(content, "容器与镜像", "（此处展开）")
+    assert "## 容器与镜像" in out
+    assert "容器是核心概念。（此处展开）" in out
+
+
+def test_insert_deep_requires_new_section() -> None:
+    """depth=deep 缺 new_section → 报错。"""
+    with pytest.raises(ValueError):
+        notes.apply_annotation("# T\n\n正文。\n", "正文", "（x）", depth="deep")
+
+
+def test_insert_annotation_writes_file_under_lock(notes_dir) -> None:
+    """文件级插入函数复用写锁，落盘并返回更新后的全文。"""
+    notes.create_note("Docker", "docker")
+    notes.append_qa_block("docker", "什么是容器", "容器是一种轻量化技术。")
+    out = notes.insert_annotation("docker", "轻量化", "（共享内核）")
+    assert "容器是一种轻量化（共享内核）技术。" in out
+    assert notes.read_note("docker") == out

@@ -43,10 +43,11 @@
   - 验证：连续两次追加，文件内容为 `# 标题` + 两个 `## 问题` 区块，无覆盖。
   - 实测：`uv run pytest -q` → `30 passed`（新增 6 个 notes 用例）；真实运行连续两次追加 → `'# 标题\n\n## Q1\n\nA1\n\n## Q2\n\nA2\n'`，标题 + 两个 `## 问题` 区块、无覆盖；`read_note` 回读一致。
 
-- [ ] **T1.5 段落定位插入**
+- [x] **T1.5 段落定位插入**
   - 做：`app/notes.py` 实现定位算法（Plan §4.1）：按空行切段 → 源码 `find(anchor)` 优先 → 逐段脱标记兜底 → 仅命中标题行时改取该标题下首个正文段 → 未命中报错；支持 `depth=deep` 时在锚点段落后插入 `####` 新章节。
-  - 产出：定位/插入函数 + `tests/test_notes.py`。
+  - 产出：`app/notes.py` 的 `AnchorNotFoundError`/`apply_annotation`（纯函数）/`insert_annotation`（复用 `_file_lock`，锁覆盖读→改→写）+ `tests/test_notes.py`。
   - 验证：`uv run pytest tests/test_notes.py` 通过（覆盖：源码命中→词后；跨行内标记→段末；重复取首次；未命中报错；deep 插 `####`）。
+  - 实测：`uv run pytest tests/test_notes.py -q` → `15 passed`（新增 9 个定位用例）；`uv run pytest -q` → `39 passed`。覆盖：源码命中→词后、跨行内标记（`**容器**和**镜像**`）→段末、重复 anchor 取首次、未命中/空 anchor 报错、仅命中标题行→改取标题下首个正文段段末、`depth=deep` 段后插 `####` 且新章节 `content` 行首标题压为 `###`、文件级插入落盘且回读一致。
 
 - [ ] **T1.6 模式①作答智能体 + Prompt**
   - 做：`app/prompts.py` 落 Plan §6.1 模板（占位符按 Plan §6 渲染约定）；`app/agents/answer_note.py` 实现模式①：组装【场景/背景/已掌握/尚不熟悉/其他主题/当前笔记】→ `chat_stream` 输出**纯 Markdown**。
