@@ -1,4 +1,5 @@
-"""T1.7 路由层：`POST /api/answer`（SSE 流式作答 + 落盘，Plan §4.1 / §7）。
+"""路由层：`POST /api/answer`（T1.7 SSE 流式作答 + 落盘）、
+`GET /api/note/{slug}` 与 `GET /api/notes`（T1.9 读接口），见 Plan §4.1 / §7。
 
 并发模型（Plan §7「接口实现约定」）：接口用**同步 `def`**，由 FastAPI 自动放入线程池，
 同步 LLM/文件/DB 等待只占用工作线程、不阻塞事件循环；SSE 用 `StreamingResponse` 配
@@ -8,7 +9,7 @@ import json
 import re
 from collections.abc import Iterator
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -127,3 +128,22 @@ def answer(req: AnswerRequest, llm: LLMClient = Depends(get_llm)) -> StreamingRe
             yield _sse({"type": "error", "message": str(exc)})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.get("/note/{slug}")
+def get_note(slug: str) -> dict:
+    """读某主题笔记全文（Plan §4.1）：`{slug, title, markdown}`；主题未落盘 → 404。"""
+    record = memory.get_note_by_slug(slug)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"主题不存在：{slug}")
+    try:
+        markdown = notes.read_note(slug)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"笔记文件缺失：{slug}")
+    return {"slug": slug, "title": record["title"], "markdown": markdown}
+
+
+@router.get("/notes")
+def get_notes() -> list[dict]:
+    """主题列表（Plan §4.1）：`[{slug, title}]`，按 `updated_at` 倒序（最新在前）。"""
+    return [{"slug": n["slug"], "title": n["title"]} for n in memory.list_notes()]

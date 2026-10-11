@@ -69,10 +69,12 @@
   - 实测：`uv run pytest -q` → `68 passed`（新增 16 个 `test_parse` 用例）。覆盖：纯 JSON / ```` ```json ```` 围栏 / 无语言围栏 / 前后多余文字提取；四类模型解析；`brief` 无 `new_section`（默认 None）、`deep` 有；非关键字段（`concept`/`kind`/`reason`/`background`）缺失默认值；`kind` 非枚举与关键字段缺失抛 `ValidationError`；`chat_json` 以 `json_mode=True` 调用；首次非法 → 回喂错误重试 1 次成功（第二次 `user` 含原始问题与错误反馈）；两次失败抛 `JsonParseError` 且恰好调用 2 次；校验失败（非语法错）同样触发重试。
 
 
-- [ ] **T1.9 读接口（笔记 / 主题列表）**
+- [x] **T1.9 读接口（笔记 / 主题列表）**
   - 做：`GET /api/note/{slug}`、`GET /api/notes` 按 Plan §4.1 实现（`notes` 返回 `[{slug,title}]`，**按 `updated_at` 倒序**、最新在前）。
-  - 产出：`app/api.py` 两个读路由。
+  - 产出：`app/api.py` 两个读路由（另加 `tests/test_api.py` 4 个用例）。
   - 验证：curl 能取到笔记全文；`/api/notes` 返回已落盘主题列表。
+  - 实测：`uv run pytest -q` → `72 passed`（新增 4 个读接口用例：笔记全文一致、未知主题 404、按 `updated_at` 倒序且仅暴露 `slug`/`title`、空库返回 `[]`）。真实 HTTP 冒烟（`uvicorn --port 8001` + `curl.exe`）：`GET /api/notes` → `[{"slug":"smoke","title":"SMOKE 主题"}]`；`GET /api/note/smoke` → `{"slug":"smoke","title":"SMOKE 主题","markdown":"# SMOKE 主题\n\n## SMOKE 问题\n\nSMOKE 正文。\n"}`；未知 slug → `404`。冒烟产物已清理（文件与 `notes`/`questions` 行删除）。
+
 
 - [ ] **T1.10 模式A 接口（基础版）**
   - 做：`prompts.py` 落 Plan §6.3 模板；`question_optimizer.py` 实现模式A 方法；`POST /api/optimize/initial`：入参 `{question, slug?}` → 出参 `{optimized_question, slug, title}`（组装时按 Plan §6 渲染约定注入背景与两类概念）。**注**：主题边界判定与 slug 合法性校验的完善在 **M5 T5.1**。

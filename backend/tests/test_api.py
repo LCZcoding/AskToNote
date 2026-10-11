@@ -205,3 +205,62 @@ def test_answer_prompt_uses_memory_two_categories_and_excludes_current_topic(env
     rendered = topics_line.split("//")[0]
     assert "java: Java 基础" in rendered
     assert "docker:" not in rendered  # 当前主题被排除（避免内链指向自身）
+
+
+# ---------------------------------------------------------------------------
+# 读接口（Plan §4.1）：GET /api/note/{slug}、GET /api/notes
+# ---------------------------------------------------------------------------
+
+
+def _seed_note(slug: str, title: str) -> None:
+    """建文件 + 写 notes 记录（读接口的前置数据）。"""
+    notes.create_note(title, slug)
+    memory.insert_note(title, slug, str(notes.note_path(slug)))
+
+
+def test_get_note_returns_slug_title_markdown(env) -> None:
+    """读笔记全文：`{slug, title, markdown}`，title 以 notes 表为准、markdown 与磁盘一致。"""
+    client, _ = env
+    _seed_note("docker", "Docker 入门")
+    notes.append_qa_block("docker", "什么是容器", "容器是轻量级虚拟化技术。")
+
+    resp = client.get("/api/note/docker")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["slug"] == "docker"
+    assert data["title"] == "Docker 入门"
+    assert data["markdown"] == notes.read_note("docker")
+    assert "# Docker 入门" in data["markdown"]
+    assert "## 什么是容器" in data["markdown"]
+
+
+def test_get_note_404_when_topic_unknown(env) -> None:
+    """未落盘的主题 → 404。"""
+    client, _ = env
+    assert client.get("/api/note/nope").status_code == 404
+
+
+def test_list_notes_returns_slug_title_ordered_by_updated_at_desc(env) -> None:
+    """主题列表 `[{slug,title}]`，按 `updated_at` 倒序（最新在前）；不暴露其余字段。"""
+    client, _ = env
+    _seed_note("a", "A")
+    _seed_note("b", "B")
+    _seed_note("c", "C")
+    with memory.write_connection() as conn:
+        conn.execute("UPDATE notes SET updated_at = ? WHERE slug = 'b'", ("2026-03-01T00:00:00+00:00",))
+        conn.execute("UPDATE notes SET updated_at = ? WHERE slug = 'c'", ("2026-02-01T00:00:00+00:00",))
+        conn.execute("UPDATE notes SET updated_at = ? WHERE slug = 'a'", ("2026-01-01T00:00:00+00:00",))
+
+    resp = client.get("/api/notes")
+    assert resp.status_code == 200
+    assert resp.json() == [
+        {"slug": "b", "title": "B"},
+        {"slug": "c", "title": "C"},
+        {"slug": "a", "title": "A"},
+    ]
+
+
+def test_list_notes_empty_when_no_notes(env) -> None:
+    """无主题时返回空列表。"""
+    client, _ = env
+    assert client.get("/api/notes").json() == []
