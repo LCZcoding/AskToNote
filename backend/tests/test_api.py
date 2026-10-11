@@ -203,6 +203,7 @@ def test_answer_prompt_uses_memory_two_categories_and_excludes_current_topic(env
         json={"question": "Q", "slug": "docker", "title": "Docker 入门"},
     )
     _, user = holder["llm"].calls[0]
+    assert "【用户问题】Q" in user
     assert "容器(familiar)" in user
     assert "镜像(unfamiliar)" in user
     # 【其他主题】只含非当前主题（取该行 `//` 前的渲染部分，避开模板示例注释）

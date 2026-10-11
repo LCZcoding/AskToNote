@@ -122,6 +122,7 @@ def answer(req: AnswerRequest, llm: LLMClient = Depends(get_llm)) -> StreamingRe
                 concepts_learning=concepts_learning,
                 topics=topics,
                 note_markdown=note_markdown,
+                question=req.question,
             ):
                 chunks.append(delta)
                 yield _sse({"type": "delta", "text": delta})

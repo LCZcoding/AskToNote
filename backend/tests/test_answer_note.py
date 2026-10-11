@@ -31,6 +31,7 @@ def _render(**overrides) -> str:
         "concepts_learning": [{"name": "镜像", "level": "unfamiliar"}],
         "topics": [{"slug": "docker", "title": "Docker 入门"}],
         "note_markdown": "# Docker 入门\n",
+        "question": "什么是容器",
     }
     values.update(overrides)
     return prompts.render_answer_note_prompt(**values)
@@ -46,8 +47,9 @@ def test_render_fills_all_placeholders() -> None:
     assert "镜像(unfamiliar)" in user
     assert "docker: Docker 入门" in user
     assert "# Docker 入门" in user
+    assert "【用户问题】什么是容器" in user
     # 模板本身不再残留未替换的占位符
-    assert "{title}" not in user and "{note_markdown}" not in user
+    assert "{title}" not in user and "{note_markdown}" not in user and "{question}" not in user
 
 
 def test_render_empty_values_use_na_placeholder() -> None:
@@ -95,10 +97,12 @@ def test_answer_note_stream_passes_prompt_and_yields_raw_chunks() -> None:
             concepts_learning=[],
             topics=[],
             note_markdown="",
+            question="什么是容器",
         )
     )
     assert out == ["# 标题", "\n\n容器", "是轻量级虚拟化。"]
     system, user = fake.calls[0]
     assert system  # system 非空
     assert "「Docker 入门」" in user
+    assert "【用户问题】什么是容器" in user
     assert prompts.NA in user  # 空背景等已渲染

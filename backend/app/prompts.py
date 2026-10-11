@@ -46,6 +46,7 @@ ANSWER_NOTE_TEMPLATE = """你是一个学习助手，帮助用户在学习陌生
 【尚不熟悉的概念】{concepts_learning}   // score<50，多为用户标注过、尚未学会的词，如 "镜像(unfamiliar)"
 【其他主题】{topics}   // 形如 "docker: Docker 入门"
 【当前笔记】{note_markdown}
+【用户问题】{question}
 
 【要求】
 1. 根据用户背景与掌握度决定讲解深度，必要时用其熟悉领域做类比；对【尚不熟悉的概念】要讲透，**不得当作用户已掌握**。
@@ -65,8 +66,12 @@ def render_answer_note_prompt(
     concepts_learning: Iterable[Mapping[str, str]],
     topics: Iterable[Mapping[str, str]],
     note_markdown: str,
+    question: str,
 ) -> str:
-    """渲染模式①作答的 user prompt（§6.1）。`slug` 为空时原样保留（空 = 新会话）。"""
+    """渲染模式①作答的 user prompt（§6.1）。
+
+    `slug` 与 `question` **原样保留**（空 slug = 新会话；`question` 为必填入参）。
+    """
     return _fill(
         ANSWER_NOTE_TEMPLATE,
         {
@@ -77,6 +82,7 @@ def render_answer_note_prompt(
             "concepts_learning": format_concepts(concepts_learning),
             "topics": format_topics(topics),
             "note_markdown": _or_na(note_markdown),
+            "question": question,
         },
     )
 

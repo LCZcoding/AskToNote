@@ -83,11 +83,13 @@
   - 实测：`uv run pytest -q` → `80 passed`（新增 8 个用例：Prompt 渲染 2、智能体 2、路由 4）。覆盖：问题注入 Prompt、空 slug 原样保留（不替换「（暂无）」）、空背景/概念/主题统一「（暂无）」、`json_mode=True` 调用、非法 JSON 回喂重试 1 次成功、两次失败 → `502`、`【现有主题】`含全部主题（不排除当前，供 slug 去重）。真实调用 `optimize_initial`（slug 空 = 新主题）→ 返回 `{optimized_question: "Docker 中的「容器（container）」到底是什么？…", slug: "docker", title: "Docker 容器基础"}`，字段齐全、JSON 约束生效。
 
 
-- [ ] **T1.11 修复：模式①把用户问题传入 LLM（回归）**
+- [x] **T1.11 修复：模式①把用户问题传入 LLM（回归）**
   - 做：Plan §6.1 已补 `【用户问题】{question}` 行；同步 `prompts.py` 的 `ANSWER_NOTE_TEMPLATE` 补该行、`render_answer_note_prompt` 加 `question` 参数（原样渲染、不走「（暂无）」）、`answer_note.py` 的 `answer_note_stream` 加 `question` 参数、`api.py` 的 `/api/answer` 传入 `req.question`；补/改测试断言问题进入作答 Prompt。
   - 背景：T1.6/T1.7 落地时 Plan §6.1 缺 `{question}` 占位符，导致**作答 Prompt 未包含用户问题**（新主题首问 `note_markdown` 为空时尤其失真）。属**回归修复**，与 T1.10 分开提交。
   - 产出：`app/prompts.py`、`app/agents/answer_note.py`、`app/api.py`（+ 相应测试）。
   - 验证：`uv run pytest` 全绿；作答 Prompt 中可见 `【用户问题】…`。
+  - 实测：`uv run pytest -q` → `80 passed`（改 3 处断言：模板占位符全填充含 `【用户问题】`、流式函数透传 `question` 进 user prompt、`/api/answer` 的 Prompt 含 `【用户问题】Q`）。真实调用 `answer_note_stream(question="什么是 Docker 容器？")` → 894 增量、1732 字，**首句直接切题**（"[[Docker]] 容器是一个轻量的、自给自足的『运行包裹』…"），修复前该 Prompt 不含问题、无法切题。
+
 
 ---
 
