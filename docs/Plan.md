@@ -34,6 +34,7 @@ AskToNote/
 │   │   ├── api.py              # 路由层（薄，只做参数校验与编排）
 │   │   ├── llm.py              # LLM 抽象层（chat / chat_stream + DeepSeek 实现）
 │   │   ├── prompts.py          # Prompt 模板常量
+│   │   ├── parse.py            # JSON 输出约束：Pydantic 模型 + 解析容错 + 回喂重试（§7）
 │   │   ├── agents/
 │   │   │   ├── answer_note.py       # 解答笔记智能体（模式①作答 / ②标注扩写）
 │   │   │   └── question_optimizer.py # 问题优化智能体（模式A / 模式B）

@@ -62,10 +62,12 @@
   - 实测：`uv run pytest -q` → `52 passed`（新增 9 个用例：`test_api` 7 + `compress_headings` 围栏感知 1 + `_clean_body` 围栏内保留 1；真实 curl 验证另见下）。真实 `curl.exe -N POST /api/answer`（端口 8001）→ 2194 个 `delta` + 末条 `done`（带 `note_markdown`）；磁盘生成 `data/notes/docker.md`（16059 字节）；`notes` 1 行、`questions` 2 行（两次请求，`source=initial`、`concept=NULL`）。**真实验证暴露并已修**：正文清洗曾把**代码围栏内的 `#` 注释**（如 bash）也压成 `###`，破坏代码示例 → 经用户确认选 **A（跳过围栏内）**：先改 Plan §7 措辞（“代码围栏内的行除外”），再令 `compress_headings` 识别 ``` / ~~~ 围栏、围栏内原样保留（`_clean_body` 顺序调整为“先压标题、后去整体围栏、再删重复标题”）。
 
 
-- [ ] **T1.8 JSON 输出约束 + 解析容错 + 单测收口**
+- [x] **T1.8 JSON 输出约束 + 解析容错 + 单测收口**
   - 做：`llm.py` 的 `chat` 加 `json_mode` 参数（带 `response_format={"type":"json_object"}`，Plan §5）；定义四个 JSON 调用的 Pydantic 模型（模式A/模式B/模式②/背景推断，schema 见 Plan §6）；解析容错工具（剥离 ```` ```json ```` 包裹、容忍多余文字）+ 校验不过**回喂错误重试 1 次** + 字段缺失默认值兜底（Plan §7「JSON 输出约束」）；`tests/test_parse.py`；跑通全部后端单测。
-  - 产出：`llm.py` 的 `json_mode`、Pydantic 模型、解析/校验工具、`tests/test_parse.py`。
+  - 产出：`app/parse.py`（四个 Pydantic 模型 + `extract_json`/`parse_model`/`chat_json` + `JsonParseError`；同步在 Plan §2 目录清单补该文件）、`tests/test_parse.py`。（`llm.py` 的 `json_mode`/`response_format` 已在 T1.2 落地，无需改动。）
   - 验证：`uv run pytest` 全绿，覆盖"带 ```json 围栏 / 带多余文字 / 字段缺失"三类用例。
+  - 实测：`uv run pytest -q` → `68 passed`（新增 16 个 `test_parse` 用例）。覆盖：纯 JSON / ```` ```json ```` 围栏 / 无语言围栏 / 前后多余文字提取；四类模型解析；`brief` 无 `new_section`（默认 None）、`deep` 有；非关键字段（`concept`/`kind`/`reason`/`background`）缺失默认值；`kind` 非枚举与关键字段缺失抛 `ValidationError`；`chat_json` 以 `json_mode=True` 调用；首次非法 → 回喂错误重试 1 次成功（第二次 `user` 含原始问题与错误反馈）；两次失败抛 `JsonParseError` 且恰好调用 2 次；校验失败（非语法错）同样触发重试。
+
 
 - [ ] **T1.9 读接口（笔记 / 主题列表）**
   - 做：`GET /api/note/{slug}`、`GET /api/notes` 按 Plan §4.1 实现（`notes` 返回 `[{slug,title}]`，**按 `updated_at` 倒序**、最新在前）。
