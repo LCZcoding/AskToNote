@@ -5,8 +5,17 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "fastapi[standard]>=0.143.0",
+    "openai>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "pytest>=8.0.0",
     "requests>=2.34.2",
+    "uvicorn>=0.30.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
 
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"

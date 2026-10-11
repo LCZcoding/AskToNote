@@ -19,10 +19,11 @@
 **验证标准（Plan §10）**：curl 能流式看到回答，并产出 `data/notes/{slug}.md`；`pytest` 通过。
 > 说明：**读接口**（T1.9）与**模式A 基础版**（T1.10）为 M2 起的前置依赖，在此一并落地（Plan §10 M1 已列）→ **M2 不含任何后端工作**。
 
-- [ ] **T1.1 依赖与配置骨架**
+- [x] **T1.1 依赖与配置骨架**
   - 做：`pyproject.toml` 增 `fastapi`/`uvicorn`/`openai`/`python-dotenv`/`pytest`；建 `app/config.py`（读 `.env`：`DEEPSEEK_API_KEY`/`DEEPSEEK_BASE_URL`/`MODEL`，及 `data/` 目录路径）；建 `.env.example`。
-  - 产出：`app/config.py`、`.env.example`、更新后的 `pyproject.toml`。
+  - 产出：`app/config.py`、`.env.example`、更新后的 `pyproject.toml`（另加 `app/__init__.py`、`tests/test_config.py`、`backend/.env`，均不违反契约）。
   - 验证：`uv run python -c "from app.config import settings; print(settings.model)"` 输出 `deepseek-flash`。
+  - 实测：`uv sync` 装依赖（openai 解析为 3.28.0）；`uv run pytest -q` → `4 passed`；验证命令输出 `deepseek-flash`。（注：`MODEL=deepseek-flash` 的 ID 有效性问题见 Plan §12 #7，T1.2 真实调用时再确认。）
 
 - [ ] **T1.2 LLM 抽象层**
   - 做：`app/llm.py` 按 Plan §5 实现 `LLMClient` Protocol 与 `DeepSeekClient`（`chat` / `chat_stream`，OpenAI SDK + `base_url`）。
