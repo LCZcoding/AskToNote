@@ -168,7 +168,7 @@
   color: #c0392b;
 }
 
-/* —— 待处理队列（`annotating`，T3.5 只读展示）—— */
+/* —— 待处理队列（`annotating`，T3.5 起展示，T3.6 串行执行）—— */
 
 .queue-list {
   margin: 0;
@@ -185,6 +185,65 @@
   background: var(--accent-bg);
   color: var(--accent);
   font-size: 12px;
+}
+
+/* —— 串行执行：当前条（T3.6）—— */
+
+.serial-current {
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  background: var(--accent-bg);
+}
+.serial-current-text {
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--text-h);
+}
+.serial-depth {
+  display: flex;
+  gap: 6px;
+}
+.serial-status {
+  font-size: 13px;
+  color: var(--text);
+}
+.serial-failed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: #c0392b;
+}
+.serial-retry,
+.serial-understood,
+.serial-skip {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.serial-retry {
+  border: 1px solid #c0392b;
+  background: var(--bg);
+  color: #c0392b;
+}
+.serial-actions {
+  display: flex;
+  gap: 8px;
+}
+.serial-understood {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+}
+.serial-skip {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
 }
 
 .confirm-error {

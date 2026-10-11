@@ -25,12 +25,20 @@ export interface AnnotationItem {
   snippet: string
 }
 
-/** 候选问题（模式B 输出 + 前端补充的 `id` 与用户待选 `depth`）。 */
+/** 候选问题（模式B 输出 + 前端补充的 `id`、用户待选 `depth` 与对应划词原文 `snippet`）。 */
 export interface PendingQuestion extends CandidateQuestion {
   id: string
   /** 用户待选了解深度；`null` = 尚未选择（确认前须逐条选定）。 */
   depth: AnnotationDepth | null
+  /**
+   * 该候选问题对应的**划词原文**（与模式B 输入 `snippets` **按下标一一对应**）。
+   * 作为 `/api/annotate` 的 `anchor` 用于笔记定位；**前端专有、非后端契约**。
+   */
+  snippet: string
 }
+
+/** 模式B 结果项 + 其划词原文（前端按下标 zip 得到；`store` 再补 `id` / `depth`）。 */
+export type CandidateWithSnippet = CandidateQuestion & { snippet: string }
 
 /**
  * 问题确认卡数据（Plan §8：模式A 与模式B **复用同一区域**，按 `mode` 判别）。
@@ -112,10 +120,10 @@ interface StoreActions {
   setPendingContext: (text: string) => void
 
   // —— 候选问题（模式B 之后）——
-  /** 整批模式B 结果：**替换**候选队列。 */
-  setPendingQuestions: (questions: CandidateQuestion[]) => void
+  /** 整批模式B 结果：**替换**候选队列（入参按下标带上划词原文 `snippet`）。 */
+  setPendingQuestions: (questions: CandidateWithSnippet[]) => void
   /** 下钻模式B 结果：**插到队列最前、优先处理**（Plan §8）。 */
-  prependPendingQuestions: (questions: CandidateQuestion[]) => void
+  prependPendingQuestions: (questions: CandidateWithSnippet[]) => void
   updatePendingQuestion: (
     id: string,
     patch: Partial<Pick<PendingQuestion, 'text' | 'concept' | 'depth'>>,
