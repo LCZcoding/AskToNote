@@ -125,10 +125,11 @@
   - 验证：控制台能收到并打印 `delta`、`done`；长回答与中文内容下无 JSON 解析错误/乱码（跨 chunk 切分正确）。
   - 实测：`npm run build`（`tsc -b && vite build`）→ 通过（20 modules，产出 `dist/`）。`types.ts` 按 Plan §4.0/§4.1 覆盖全部 10 个接口的请求/响应 + `SseEvent` 联合类型（`delta`/`done`/`error`）+ `Kind`/`Depth`/`Level` 枚举联合；`api.ts` 提供 `getNotes`/`getNote`/`getMemory`/`optimizeInitial`/`optimizeAnnotation`/`annotate`/`updateMemory`/`confirmConcept`/`refreshBackground` 与 `streamAnswer`（SSE 按行缓冲：`TextDecoder({stream:true})` → 追加 buffer → 按 `\n\n` 切完整事件分发 → 残片留待下一 chunk；结束再 `decoder.decode()` flush 尾部残片；非 2xx/无流/网络异常统一走 `onError`）。**运行期冒烟**（临时在 `main.tsx` 挂 `streamAnswer` 调用 `POST /api/answer`，验证后已删除并回滚）：`uvicorn` :8000 + `npm run dev` :5173，浏览器加载 → 控制台 **95 条 `[smoke-delta]`**（中文正常、无乱码）+ **1 条 `[smoke-done]`**（笔记全文 3242 字，开头 `# 冒烟T2`），无 JSON 解析错误；后端日志恰 **1 次 `POST /api/answer 200 OK`**。（控制台另有一条 `net::ERR_ABORTED` 属浏览器导航期中止、未到达后端的空请求，非解析错误。）冒烟产物已清理（`data/notes/smoke-t2.md` 与 `notes`/`questions` 行删除）。
 
-- [ ] **T2.3 状态仓库**
-  - 做：`src/store.ts`（zustand：`noteSlug`/`noteMarkdown`/`streaming`/`optimizeCard`/`annotations`/`pendingQuestions` + Plan §8 状态机）。
+- [x] **T2.3 状态仓库**
+  - 做：`src/store.ts`（zustand：`noteSlug`/`noteMarkdown`/`optimizeCard`/`annotations`/`pendingQuestions` + Plan §8 状态机）。**`streaming` 改为从 `phase` 派生的 selector（`useIsStreaming`），不单设布尔字段**——经与用户确认，避免"阶段"与"是否在流式"两份状态不同步。
   - 产出：`src/store.ts`。
   - 验证：状态能在组件间读写、切换，状态机流转与 Plan §8 一致。
+  - 实测：`npm run build`（`tsc -b && vite build`）→ 通过。`phase: 'idle'|'optimizing'|'streaming'|'done'|'annotating'` 单一真相源；动作覆盖全链路 `startOptimize`→`setInitialCard`/`updateInitialQuestion`→`beginStreaming`/`appendDelta`/`finishStreaming`(覆盖校正)/`failStreaming`→`addAnnotation`/`removeAnnotation`→`startOptimize`→`setPendingQuestions`/`setAnnotationCard`/`updatePendingQuestion`/`removePendingQuestion`→`beginAnnotating`→`finishAnnotating`，另有 `cancelOptimize`/`openNote`/`clearAnnotations`；派生 selector `useIsStreaming`（=phase==='streaming'）与 `useCanAnnotate`（idle/done 两态可标注）。**确定性验证**：用本地 `rolldown` 把 `store.ts` 打成 ESM，Node 驱动全流程断言 **24 项全 PASS**（初始态/openNote/各阶段流转/字段透传/`finishStreaming` 覆盖校正/标注增删/候选问题默认 `depth=null` 与选深度/失败与取消分支）；验证脚本与产物已删除。串行执行游标/失败信息按确认**不在本任务引入**（留 T3.6）。
 
 - [ ] **T2.4 笔记区渲染 + 启动加载**
   - 做：`src/components/NoteView.tsx` 用 `react-markdown` 渲染（**开启 `rehype-raw`**，以渲染标注写入的行内 HTML 锚点与 `[↩]` 回跳，Spec FR-9c）；`src/remark-wikilink.ts` 高亮 `[[概念名]]` / `[[slug#概念]]`（**v1 不可点击跳转**）；页面初始化调 `GET /api/notes`（**按 `updated_at` 倒序**）→ 有主题则自动打开最近更新的一篇（"继续上次学习"），无主题显示空态、引导提问。
