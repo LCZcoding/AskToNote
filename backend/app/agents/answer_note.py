@@ -22,6 +22,7 @@ def answer_note_stream(
     topics: Iterable[Mapping[str, str]],
     note_markdown: str,
     question: str,
+    context: str = "",
 ) -> Iterator[str]:
     """模式①作答：返回纯 Markdown 增量迭代器（直接透传 `chat_stream`）。"""
     user = render_answer_note_prompt(
@@ -33,5 +34,6 @@ def answer_note_stream(
         topics=topics,
         note_markdown=note_markdown,
         question=question,
+        context=context,
     )
     return llm.chat_stream(SYSTEM_PROMPT, user)

@@ -91,6 +91,22 @@
   - 实测：`uv run pytest -q` → `80 passed`（改 3 处断言：模板占位符全填充含 `【用户问题】`、流式函数透传 `question` 进 user prompt、`/api/answer` 的 Prompt 含 `【用户问题】Q`）。真实调用 `answer_note_stream(question="什么是 Docker 容器？")` → 894 增量、1732 字，**首句直接切题**（"[[Docker]] 容器是一个轻量的、自给自足的『运行包裹』…"），修复前该 Prompt 不含问题、无法切题。
 
 
+- [x] **T1.12 大块追问的引用片段（`context`）能力（插队）**
+  - 做：`prompts.py` 的 `ANSWER_NOTE_TEMPLATE`（§6.1）与 `OPTIMIZE_INITIAL_TEMPLATE`（§6.3）各补 `【引用片段】{context}` 行；`render_answer_note_prompt`/`render_optimize_initial_prompt` 加 `context` 参数（空 → 「（暂无）」）；`answer_note.py`/`question_optimizer.py` 透传 `context`；`api.py` 的 `OptimizeInitialRequest` 与 `/api/answer` 请求体各加**可选字段 `context: str = ""`** 并传入。**不碰**落盘逻辑（追问仍按 FR-3b 末尾追加）。
+  - 背景：Spec FR-4a/FR-4b —— 划词选区（去首尾空白）> 60 字退化为「追问」，引用片段**只进 Prompt、不进 `## 问题` 标题**。
+  - 产出：`app/prompts.py`、`app/agents/answer_note.py`、`app/agents/question_optimizer.py`、`app/api.py`（+ `tests/test_answer_note.py`/`test_question_optimizer.py`/`test_api.py` 断言）。
+  - 验证：`uv run pytest` 全绿；传 `context` 时两处 Prompt 均含【引用片段】、不传时渲染「（暂无）」；出参与 `## 问题` 标题不受 `context` 影响。
+  - 实测：`uv run pytest -q` → `82 passed`（+2 例：`test_answer_context_only_enters_prompt_not_question_heading`、`test_optimize_initial_passes_context_into_prompt`；并改 `test_answer_note`/`test_question_optimizer` 的占位符与 NA 计数断言）。真实调用：`POST /api/optimize/initial`（带 `context`）→ 200，优化问题切中引用片段；`curl.exe -N POST /api/answer`（带 `context`）→ `delta*`→`done`，回答围绕引用片段（原文以引用块呈现），落盘笔记标题为 `## (验证) 这段怎么理解`（**不含** `context`）。验证写入的临时主题已清理（文件 + `notes`/`questions` 行）。
+
+
+- [ ] **T1.13 标注双向跳转标记（写入笔记源码，插队）**
+  - 做：`app/notes.py` 的 `apply_annotation` 改造——原词**源码精确命中**时，词前插 `<a id="anno-{n}-src"></a>` 并把原词包成 `[原词](#anno-{n})`；解释处插 `<a id="anno-{n}"></a>`，并在简释末尾追加回跳 `[↩](#anno-{n}-src)`；`n = uuid4().hex[:8]`。**降级**：仅脱标记兜底命中、或原词已在链接/标记内 → **只插解释侧锚点**、不包原词、不加回跳。同步 `tests/test_notes.py`。
+  - 背景：Spec FR-9c —— 原词 ⇄ 解释 **双向**可点击跳转，**写入源码**、通用 MD 阅读器可点。
+  - 产出：`app/notes.py`（+ `tests/test_notes.py`）。
+  - 验证：`uv run pytest tests/test_notes.py` 通过（源码命中 → 双向锚点/链接齐全；兜底命中 → 单向降级）。
+  - 实测：（待填）
+
+
 ---
 
 ## M2 前端骨架
@@ -113,14 +129,14 @@
   - 验证：状态能在组件间读写、切换，状态机流转与 Plan §8 一致。
 
 - [ ] **T2.4 笔记区渲染 + 启动加载**
-  - 做：`src/components/NoteView.tsx` 用 `react-markdown` 渲染；`src/remark-wikilink.ts` 高亮 `[[概念名]]` / `[[slug#概念]]`（**v1 不可点击跳转**）；页面初始化调 `GET /api/notes`（**按 `updated_at` 倒序**）→ 有主题则自动打开最近更新的一篇（"继续上次学习"），无主题显示空态、引导提问。
+  - 做：`src/components/NoteView.tsx` 用 `react-markdown` 渲染（**开启 `rehype-raw`**，以渲染标注写入的行内 HTML 锚点与 `[↩]` 回跳，Spec FR-9c）；`src/remark-wikilink.ts` 高亮 `[[概念名]]` / `[[slug#概念]]`（**v1 不可点击跳转**）；页面初始化调 `GET /api/notes`（**按 `updated_at` 倒序**）→ 有主题则自动打开最近更新的一篇（"继续上次学习"），无主题显示空态、引导提问。
   - 产出：`NoteView.tsx`、`remark-wikilink.ts`、启动加载逻辑。
-  - 验证：笔记 MD 正常渲染，内链显示为高亮标签；已有主题时刷新页面自动打开最近更新的一篇。
+  - 验证：笔记 MD 正常渲染，内链显示为高亮标签；**点击标注原词跳到其解释、点解释的「↩」跳回原词**；已有主题时刷新页面自动打开最近更新的一篇。
 
 - [ ] **T2.5 提问区 + 问题确认卡（模式A）**
-  - 做：`AskBar.tsx`（输入原始问题 +「优化」）与 `QuestionConfirm.tsx`（确认卡：**优化后问题可编辑**；主题只读显示"并入《title》/新建《title》"，`slug` 不可改）→ 确认发起。
+  - 做：`AskBar.tsx`（输入原始问题 +「优化」；**支持引用片段**——大块追问带入时在输入框上方显示引用文本，问题**可留空** → 默认「请详细讲解这段内容」，请求携带 `context`，见 **T1.12**/Spec FR-4b）与 `QuestionConfirm.tsx`（确认卡：**优化后问题可编辑**；主题只读显示"并入《title》/新建《title》"，`slug` 不可改）→ 确认发起。
   - 产出：`AskBar.tsx`、`QuestionConfirm.tsx`。
-  - 验证：提问 → 弹出确认卡 → 改问题 → 确认后发出。
+  - 验证：提问 → 弹出确认卡 → 改问题 → 确认后发出；带引用片段提问时请求体含 `context`、问题留空走默认文案。
 
 - [ ] **T2.6 流式打字机（笔记区底部实时渲染 + done 覆盖校正）**
   - 做：`delta` 直接在**笔记区底部**累积渲染出当前新 Q/A 块；`done` 用后端 `note_markdown` **覆盖校正**；`streaming` 期间禁止标注。
@@ -149,9 +165,9 @@
   - 验证：curl 标注一次，笔记在锚点后出现解释（deep 另有 `####` 章节），`annotations`/`questions` 各增一行。
 
 - [ ] **T3.4 划词标注（前端）**
-  - 做：`NoteView` 在**流式结束且 MD 渲染稳定**后用 `window.getSelection()` 捕获选中文本，仅限**笔记区**，写入 `annotations[]`。
-  - 产出：划词逻辑 + 标注气泡/列表。
-  - 验证：流式期间无法划词；结束后可选中并出现在标注列表。
+  - 做：`NoteView` 在**流式结束且 MD 渲染稳定**后用 `window.getSelection()` 捕获选中文本，仅限**笔记区**，然后**按字符数分流**（Spec FR-4a/FR-4b）：**去首尾空白 > 60 字** = 大块 → **不进标注列表**、移交**提问区**（带 `context`，走 T2.5 追问链路）；**≤ 60 字** → 写入 `annotations[]`（既有标注流程）。
+  - 产出：划词逻辑 + 标注气泡/列表 + 大块分流。
+  - 验证：流式期间无法划词；选短文本出现在标注列表；选**大块（>60 字）不出现在标注列表**、提问区出现该引用。
 
 - [ ] **T3.5 候选问题确认区（标注态）**
   - 做：划词结束后**整批一次性**调模式B，同一确认区切换为候选问题列表（可删减/编辑），每条选**简单/深入**；**下钻的新标注单独再走一遍模式B**并**插到队列最前**。
@@ -226,4 +242,6 @@
 - [ ] 点「已理解」→ 记忆 `pending` 清、`score+10`；重复点击不叠加。
 - [ ] 点「跳过」→ 不调 `confirm`、记忆不变、队列推进到下一条（已写入的扩写不回滚）。
 - [ ] 重复提问与标注，同一主题追加、新主题新建；跨主题正向内链渲染正常。
+- [ ] 选中一大块（> 60 字）→ 自动进提问区并带引用 → 追问 → 回答作为新 Q/A 区块追加到笔记末尾（不入标注列表、不改记忆）。
+- [ ] 标注后：点笔记里的**原词**跳到其解释、点解释的「↩」跳回原词（通用 MD 阅读器打开亦可点）。
 - [ ] 二次会话背景推断生效，且回答深度随掌握度变化。

@@ -32,6 +32,7 @@ def _render(**overrides) -> str:
         "topics": [{"slug": "docker", "title": "Docker 入门"}],
         "note_markdown": "# Docker 入门\n",
         "question": "什么是容器",
+        "context": "",
     }
     values.update(overrides)
     return prompts.render_answer_note_prompt(**values)
@@ -39,7 +40,7 @@ def _render(**overrides) -> str:
 
 def test_render_fills_all_placeholders() -> None:
     """各占位符按 §6 渲染约定填入。"""
-    user = _render()
+    user = _render(context="大块引用原文")
     assert "「Docker 入门」" in user
     assert "（slug=docker）" in user
     assert "熟悉 Java 后端" in user
@@ -48,8 +49,10 @@ def test_render_fills_all_placeholders() -> None:
     assert "docker: Docker 入门" in user
     assert "# Docker 入门" in user
     assert "【用户问题】什么是容器" in user
+    assert "【引用片段】大块引用原文" in user
     # 模板本身不再残留未替换的占位符
     assert "{title}" not in user and "{note_markdown}" not in user and "{question}" not in user
+    assert "{context}" not in user
 
 
 def test_render_empty_values_use_na_placeholder() -> None:
@@ -62,7 +65,7 @@ def test_render_empty_values_use_na_placeholder() -> None:
         topics=[],
         note_markdown="",
     )
-    assert user.count(prompts.NA) == 5  # background/mastered/learning/topics/note
+    assert user.count(prompts.NA) == 6  # background/mastered/learning/topics/note/context
     assert "（slug=）" in user  # slug 为空时不替换为占位
 
 
@@ -98,6 +101,7 @@ def test_answer_note_stream_passes_prompt_and_yields_raw_chunks() -> None:
             topics=[],
             note_markdown="",
             question="什么是容器",
+            context="引用块",
         )
     )
     assert out == ["# 标题", "\n\n容器", "是轻量级虚拟化。"]
@@ -105,4 +109,5 @@ def test_answer_note_stream_passes_prompt_and_yields_raw_chunks() -> None:
     assert system  # system 非空
     assert "「Docker 入门」" in user
     assert "【用户问题】什么是容器" in user
+    assert "【引用片段】引用块" in user
     assert prompts.NA in user  # 空背景等已渲染

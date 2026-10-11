@@ -190,7 +190,7 @@ def test_answer_error_event_on_llm_failure(env) -> None:
 
 
 def test_answer_prompt_uses_memory_two_categories_and_excludes_current_topic(env) -> None:
-    """概念按 score 分两类进 Prompt；【其他主题】只含非当前主题。"""
+    """概念按 score 分两类进 Prompt；【其他主题】只含非当前主题；引用片段进 Prompt。"""
     client, holder = env
     with memory.write_connection() as conn:
         conn.execute("INSERT INTO concepts (name, score, updated_at) VALUES ('容器', 60, 't')")
@@ -200,10 +200,16 @@ def test_answer_prompt_uses_memory_two_categories_and_excludes_current_topic(env
     holder["llm"] = FakeLLM(["回答。"])
     client.post(
         "/api/answer",
-        json={"question": "Q", "slug": "docker", "title": "Docker 入门"},
+        json={
+            "question": "Q",
+            "slug": "docker",
+            "title": "Docker 入门",
+            "context": "引用片段原文",
+        },
     )
     _, user = holder["llm"].calls[0]
     assert "【用户问题】Q" in user
+    assert "【引用片段】引用片段原文" in user
     assert "容器(familiar)" in user
     assert "镜像(unfamiliar)" in user
     # 【其他主题】只含非当前主题（取该行 `//` 前的渲染部分，避开模板示例注释）
@@ -211,6 +217,30 @@ def test_answer_prompt_uses_memory_two_categories_and_excludes_current_topic(env
     rendered = topics_line.split("//")[0]
     assert "java: Java 基础" in rendered
     assert "docker:" not in rendered  # 当前主题被排除（避免内链指向自身）
+
+
+def test_answer_context_only_enters_prompt_not_question_heading(env) -> None:
+    """FR-4b：引用片段只进 Prompt，不进入落盘笔记的 `## 问题` 标题。"""
+    client, holder = env
+    holder["llm"] = FakeLLM(["回答正文。"])
+    resp = client.post(
+        "/api/answer",
+        json={
+            "question": "这段怎么理解",
+            "slug": "docker",
+            "title": "Docker 入门",
+            "context": "被选中的一大块原文",
+        },
+    )
+    assert resp.status_code == 200
+    md = _parse_sse(resp.text)[-1]["note_markdown"]
+    assert "## 这段怎么理解" in md
+    # 标题行不含引用片段
+    heading = next(l for l in md.splitlines() if l.startswith("## "))
+    assert "被选中的一大块原文" not in heading
+    # 引用片段确实进了 Prompt
+    _, user = holder["llm"].calls[0]
+    assert "【引用片段】被选中的一大块原文" in user
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +344,23 @@ def test_optimize_initial_prompt_lists_all_topics_and_raw_slug(env) -> None:
     assert "docker: Docker 入门" in user
     assert "java: Java 基础" in user
     assert "【当前主题】docker（" in user
+
+
+def test_optimize_initial_passes_context_into_prompt(env) -> None:
+    """`context`（引用片段）透传进模式A 的 Prompt。"""
+    client, holder = env
+    holder["llm"] = FakeLLM(
+        json_responses=[
+            json.dumps({"optimized_question": "Q2", "slug": "docker", "title": "Docker 入门"})
+        ]
+    )
+    resp = client.post(
+        "/api/optimize/initial",
+        json={"question": "这段怎么理解", "slug": "docker", "context": "引用片段原文"},
+    )
+    assert resp.status_code == 200
+    user = holder["llm"].json_calls[0]["user"]
+    assert "【引用片段】引用片段原文" in user
 
 
 def test_optimize_initial_retries_on_bad_json(env) -> None:

@@ -21,6 +21,7 @@ def optimize_initial(
     concepts_mastered: Iterable[Mapping[str, str]],
     concepts_learning: Iterable[Mapping[str, str]],
     topics: Iterable[Mapping[str, str]],
+    context: str = "",
 ) -> OptimizeInitialResult:
     """模式A：优化初始问题并命名主题（新主题给新 slug，否则沿用当前）。
 
@@ -33,5 +34,6 @@ def optimize_initial(
         concepts_mastered=concepts_mastered,
         concepts_learning=concepts_learning,
         topics=topics,
+        context=context,
     )
     return chat_json(llm, SYSTEM_PROMPT, user, OptimizeInitialResult)

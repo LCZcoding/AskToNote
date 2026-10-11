@@ -46,6 +46,7 @@ ANSWER_NOTE_TEMPLATE = """你是一个学习助手，帮助用户在学习陌生
 【尚不熟悉的概念】{concepts_learning}   // score<50，多为用户标注过、尚未学会的词，如 "镜像(unfamiliar)"
 【其他主题】{topics}   // 形如 "docker: Docker 入门"
 【当前笔记】{note_markdown}
+【引用片段】{context}   // 用户选中追问的一大块原文，可空
 【用户问题】{question}
 
 【要求】
@@ -67,10 +68,12 @@ def render_answer_note_prompt(
     topics: Iterable[Mapping[str, str]],
     note_markdown: str,
     question: str,
+    context: str = "",
 ) -> str:
     """渲染模式①作答的 user prompt（§6.1）。
 
-    `slug` 与 `question` **原样保留**（空 slug = 新会话；`question` 为必填入参）。
+    `slug` 与 `question` **原样保留**（空 slug = 新会话；`question` 为必填入参）；
+    `context`（引用片段）为空时渲染为「（暂无）」。
     """
     return _fill(
         ANSWER_NOTE_TEMPLATE,
@@ -83,6 +86,7 @@ def render_answer_note_prompt(
             "topics": format_topics(topics),
             "note_markdown": _or_na(note_markdown),
             "question": question,
+            "context": _or_na(context),
         },
     )
 
@@ -96,6 +100,7 @@ OPTIMIZE_INITIAL_TEMPLATE = """你是提问优化与主题命名助手。
 【用户背景】{background}
 【已掌握概念】{concepts_mastered}   // score≥50，如 "容器(familiar)"
 【尚不熟悉的概念】{concepts_learning}   // score<50（用户标注过、尚未学会）
+【引用片段】{context}   // 用户选中追问的一大块原文，可空
 【用户问题】{question}
 
 【任务】
@@ -116,11 +121,12 @@ def render_optimize_initial_prompt(
     concepts_mastered: Iterable[Mapping[str, str]],
     concepts_learning: Iterable[Mapping[str, str]],
     topics: Iterable[Mapping[str, str]],
+    context: str = "",
 ) -> str:
     """渲染模式A的 user prompt（§6.3）。
 
     `slug` 与 `question` **原样保留**（不参与「（暂无）」兜底）：空 slug = 新会话/新主题；
-    `question` 为必填入参（见 §6 渲染约定）。
+    `question` 为必填入参（见 §6 渲染约定）；`context`（引用片段）为空时渲染为「（暂无）」。
     """
     return _fill(
         OPTIMIZE_INITIAL_TEMPLATE,
@@ -131,5 +137,6 @@ def render_optimize_initial_prompt(
             "concepts_mastered": format_concepts(concepts_mastered),
             "concepts_learning": format_concepts(concepts_learning),
             "question": question,
+            "context": _or_na(context),
         },
     )

@@ -37,11 +37,15 @@ def get_llm() -> LLMClient:
 
 
 class AnswerRequest(BaseModel):
-    """`POST /api/answer` 入参：已确认的优化问题 + 主题（slug/title 由模式A 给出）。"""
+    """`POST /api/answer` 入参：已确认的优化问题 + 主题（slug/title 由模式A 给出）。
+
+    `context`（Plan §4.1）：用户选中追问的一大块原文，可选；只进 Prompt，不进 `## 问题` 标题。
+    """
 
     question: str
     slug: str
     title: str
+    context: str = ""
 
 
 def _sse(payload: dict) -> str:
@@ -123,6 +127,7 @@ def answer(req: AnswerRequest, llm: LLMClient = Depends(get_llm)) -> StreamingRe
                 topics=topics,
                 note_markdown=note_markdown,
                 question=req.question,
+                context=req.context,
             ):
                 chunks.append(delta)
                 yield _sse({"type": "delta", "text": delta})
@@ -156,10 +161,14 @@ def get_notes() -> list[dict]:
 
 
 class OptimizeInitialRequest(BaseModel):
-    """`POST /api/optimize/initial` 入参（Plan §4.1）：原始问题 + 当前主题 slug（可空 = 新会话）。"""
+    """`POST /api/optimize/initial` 入参（Plan §4.1）：原始问题 + 当前主题 slug（可空 = 新会话）。
+
+    `context`（引用片段）可选；只进 Prompt。
+    """
 
     question: str
     slug: str = ""
+    context: str = ""
 
 
 @router.post("/optimize/initial")
@@ -183,6 +192,7 @@ def optimize_initial(
             concepts_mastered=concepts_mastered,
             concepts_learning=concepts_learning,
             topics=topics,
+            context=req.context,
         )
     except JsonParseError as exc:
         raise HTTPException(status_code=502, detail=f"问题优化失败：{exc}")

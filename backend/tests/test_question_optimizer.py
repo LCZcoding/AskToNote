@@ -34,7 +34,7 @@ class FakeLLM:
 
 
 def test_render_includes_question_and_keeps_empty_slug_raw() -> None:
-    """问题进入 Prompt；空 slug 原样保留（不替换为「（暂无）」）。"""
+    """问题进入 Prompt；空 slug 原样保留（不替换为「（暂无）」）；引用片段填入。"""
     prompt = render_optimize_initial_prompt(
         question="什么是容器",
         slug="",  # 空 = 新会话/新主题
@@ -42,17 +42,20 @@ def test_render_includes_question_and_keeps_empty_slug_raw() -> None:
         concepts_mastered=[{"name": "容器", "level": "familiar"}],
         concepts_learning=[{"name": "镜像", "level": "unfamiliar"}],
         topics=[{"slug": "docker", "title": "Docker 入门"}],
+        context="引用块",
     )
     assert "{question}" not in prompt and "{slug}" not in prompt
+    assert "{context}" not in prompt
     assert "【用户问题】什么是容器" in prompt
     assert "【当前主题】（当前主题" in prompt  # 空 slug 原样（后随模板注释）
     assert "【用户背景】熟悉 Java 后端" in prompt
     assert "容器(familiar)" in prompt and "镜像(unfamiliar)" in prompt
     assert "docker: Docker 入门" in prompt
+    assert "【引用片段】引用块" in prompt
 
 
 def test_render_empty_optional_values_use_placeholder() -> None:
-    """背景/两类概念/主题为空 → 统一渲染「（暂无）」。"""
+    """背景/两类概念/主题/引用片段为空 → 统一渲染「（暂无）」。"""
     prompt = render_optimize_initial_prompt(
         question="Q",
         slug="docker",
@@ -61,7 +64,7 @@ def test_render_empty_optional_values_use_placeholder() -> None:
         concepts_learning=[],
         topics=[],
     )
-    assert prompt.count("（暂无）") == 4
+    assert prompt.count("（暂无）") == 5
 
 
 # ---------------------------------------------------------------------------
@@ -82,12 +85,14 @@ def test_agent_returns_parsed_model_and_uses_json_mode() -> None:
         concepts_mastered=[],
         concepts_learning=[],
         topics=[],
+        context="引用块",
     )
     assert isinstance(out, OptimizeInitialResult)
     assert out.optimized_question == "优化后的问题" and out.slug == "docker"
     assert fake.calls[0]["json_mode"] is True
     assert fake.calls[0]["system"] == SYSTEM_PROMPT
     assert "【用户问题】什么是容器" in fake.calls[0]["user"]
+    assert "【引用片段】引用块" in fake.calls[0]["user"]
 
 
 def test_agent_raises_json_parse_error_after_two_tries() -> None:
