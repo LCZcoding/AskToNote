@@ -113,10 +113,11 @@
 
 **验证标准（Plan §10）**：浏览器能提问、确认优化问题与主题、实时看回答流入笔记。
 
-- [ ] **T2.1 前端工程初始化**
+- [x] **T2.1 前端工程初始化**
   - 做：`frontend/` 建 Vite + React + TS + zustand；`vite.config.ts` 配 `server.proxy` 把 `/api` 转发到 `http://127.0.0.1:8000`（后端 CORS 已在 T1.7 挂好）。
   - 产出：`frontend/` 工程、`vite.config.ts`。
   - 验证：`npm run dev` 起服务，浏览器能通过 proxy 访问后端接口。
+  - 实测：脚手架（Vite8 + React19 + TS + zustand + react-markdown）已存在；本轮把 `vite.config.ts` 代理目标由 `http://localhost:8000` 改为 `http://127.0.0.1:8000`（规避 localhost→IPv6）。`npm install`（npmmirror）→ up to date；`npm run dev` → Vite ready（:5173）；`uv run uvicorn main:app` → :8000 up。`curl.exe http://localhost:5173/api/notes` → **200 `[]`**（与直连 `127.0.0.1:8000` 一致），proxy 生效；验证后两服务已停止。
 
 - [ ] **T2.2 前端契约与请求层**
   - 做：`src/types.ts` 与后端 JSON 契约对齐；`src/api.ts` 封装 `fetch`，用 `ReadableStream` 读 SSE（按 `type` 分发 `delta`/`done`/`error`，EventSource 不支持 POST）；**必须按行缓冲解析**——chunk 是任意切分的字节段，先 `TextDecoder({stream:true})` 解码并追加到 buffer，按 `\n\n` 切出完整事件再 `JSON.parse`，尾部残片留待下一 chunk，**严禁对每个 chunk 直接 parse**。
