@@ -131,10 +131,11 @@
   - 验证：状态能在组件间读写、切换，状态机流转与 Plan §8 一致。
   - 实测：`npm run build`（`tsc -b && vite build`）→ 通过。`phase: 'idle'|'optimizing'|'streaming'|'done'|'annotating'` 单一真相源；动作覆盖全链路 `startOptimize`→`setInitialCard`/`updateInitialQuestion`→`beginStreaming`/`appendDelta`/`finishStreaming`(覆盖校正)/`failStreaming`→`addAnnotation`/`removeAnnotation`→`startOptimize`→`setPendingQuestions`/`setAnnotationCard`/`updatePendingQuestion`/`removePendingQuestion`→`beginAnnotating`→`finishAnnotating`，另有 `cancelOptimize`/`openNote`/`clearAnnotations`；派生 selector `useIsStreaming`（=phase==='streaming'）与 `useCanAnnotate`（idle/done 两态可标注）。**确定性验证**：用本地 `rolldown` 把 `store.ts` 打成 ESM，Node 驱动全流程断言 **24 项全 PASS**（初始态/openNote/各阶段流转/字段透传/`finishStreaming` 覆盖校正/标注增删/候选问题默认 `depth=null` 与选深度/失败与取消分支）；验证脚本与产物已删除。串行执行游标/失败信息按确认**不在本任务引入**（留 T3.6）。
 
-- [ ] **T2.4 笔记区渲染 + 启动加载**
+- [x] **T2.4 笔记区渲染 + 启动加载**
   - 做：`src/components/NoteView.tsx` 用 `react-markdown` 渲染（**开启 `rehype-raw`**，以渲染标注写入的行内 HTML 锚点与 `[↩]` 回跳，Spec FR-9c）；`src/remark-wikilink.ts` 高亮 `[[概念名]]` / `[[slug#概念]]`（**v1 不可点击跳转**）；页面初始化调 `GET /api/notes`（**按 `updated_at` 倒序**）→ 有主题则自动打开最近更新的一篇（"继续上次学习"），无主题显示空态、引导提问。
-  - 产出：`NoteView.tsx`、`remark-wikilink.ts`、启动加载逻辑。
+  - 产出：`NoteView.tsx`、`remark-wikilink.ts`、启动加载逻辑（另加 `NoteView.css`、`rehype-raw` 依赖，并重写 `App.tsx`/`App.css`/`index.css` 以替换 Vite 脚手架样式）。
   - 验证：笔记 MD 正常渲染，内链显示为高亮标签；**点击标注原词跳到其解释、点解释的「↩」跳回原词**；已有主题时刷新页面自动打开最近更新的一篇。
+  - 实测：`npm run build`（`tsc -b && vite build`）→ 通过（222 modules）。`remark-wikilink.ts` 为 **remark 插件**（mdast 阶段把文本节点里的 `[[…]]` 换成 `html` 节点 `<span class="wikilink" data-slug="…">概念</span>`，交由 `rehype-raw` 解析成真实 span；`[[slug#概念]]` 取概念名做显示、slug 存入 `data-slug`/`title`；HTML 转义防注入）；`NoteView.tsx` = `react-markdown` + `rehypePlugins={[rehypeRaw]}` + `remarkPlugins={[remarkWikilink]}` 渲染 `store.noteMarkdown`；`App.tsx` 启动调 `GET /api/notes` → 有主题则 `GET /api/note/{slug}` 自动打开第一篇并 `openNote`，无主题显示空态、失败显示错误。**浏览器实测**（uvicorn :8000 + `npm run dev` :5173，预置一篇含 `[[容器]]`/`[[docker#镜像]]` 与双向锚点 `anno-ab12cd34` 的笔记）：① 启动**自动打开**该主题（未出现空态）；② `document.querySelectorAll('.wikilink')` → `SPAN|wikilink|容器`、`SPAN|wikilink|镜像`（内链高亮生效）；③ 点原词「命名空间」`location.hash` → `#anno-ab12cd34`、点「↩」→ `#anno-ab12cd34-src`（**双向跳转生效**，靠浏览器原生锚点导航、无额外 JS）；④ 控制台无 error/warning；⑤ 删除笔记后刷新 → 空态 `app-empty` 文案「还没有任何主题。…」正确。验证产物（临时笔记文件、`notes` 行、两个临时脚本）已清理。
 
 - [ ] **T2.5 提问区 + 问题确认卡（模式A）**
   - 做：`AskBar.tsx`（输入原始问题 +「优化」；**支持引用片段**——大块追问带入时在输入框上方显示引用文本，问题**可留空** → 默认「请详细讲解这段内容」，请求携带 `context`，见 **T1.12**/Spec FR-4b）与 `QuestionConfirm.tsx`（确认卡：**优化后问题可编辑**；主题只读显示"并入《title》/新建《title》"，`slug` 不可改）→ 确认发起。
