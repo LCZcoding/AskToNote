@@ -49,10 +49,11 @@
   - 验证：`uv run pytest tests/test_notes.py` 通过（覆盖：源码命中→词后；跨行内标记→段末；重复取首次；未命中报错；deep 插 `####`）。
   - 实测：`uv run pytest tests/test_notes.py -q` → `15 passed`（新增 9 个定位用例）；`uv run pytest -q` → `39 passed`。覆盖：源码命中→词后、跨行内标记（`**容器**和**镜像**`）→段末、重复 anchor 取首次、未命中/空 anchor 报错、仅命中标题行→改取标题下首个正文段段末、`depth=deep` 段后插 `####` 且新章节 `content` 行首标题压为 `###`、文件级插入落盘且回读一致。
 
-- [ ] **T1.6 模式①作答智能体 + Prompt**
+- [x] **T1.6 模式①作答智能体 + Prompt**
   - 做：`app/prompts.py` 落 Plan §6.1 模板（占位符按 Plan §6 渲染约定）；`app/agents/answer_note.py` 实现模式①：组装【场景/背景/已掌握/尚不熟悉/其他主题/当前笔记】→ `chat_stream` 输出**纯 Markdown**。
-  - 产出：`app/prompts.py`、`app/agents/answer_note.py`。
+  - 产出：`app/prompts.py`、`app/agents/answer_note.py`（另加 `app/agents/__init__.py`、`tests/test_answer_note.py`）。
   - 验证：直接调用该函数能流式产出 Markdown 文本，无 JSON/代码块包裹。
+  - 实测：`uv run pytest -q` → `43 passed`（新增 4 个用例，mock LLM）；真实调用 `answer_note_stream` → 1314 个增量、共 2808 字，输出纯 Markdown（首行 `### …`，无 JSON、无代码围栏）。空值统一渲染「（暂无）」、`{slug}` 空前缀保留。（占位符替换用 `str.replace`，规避后续 JSON 模板的花括号冲突。）
 
 - [ ] **T1.7 回答落盘 + SSE 接口**
   - 做：`app/api.py` + `main.py` 挂载路由与 CORS；`POST /api/answer` 按 Plan §4.1 返回 SSE（`data: {JSON}`，`type` = `delta`/`done`/`error`）；流结束执行 Plan §7 的**正文清洗**（行首标题一律压为 `###`、删开头重复问题标题、去整体代码围栏）→ 组 `## {问题}` + 正文**追加/新建文件**（新 slug 先写 `# {title}`；**已存在则 `title` 以 `notes` 表为准**）→ 写 `notes` 记录（新建写 `created_at`，两种情况**均刷新 `updated_at`**）→ 写 `questions(source='initial')`（`concept` 置 NULL）→ 发 `done{note_markdown}`。
