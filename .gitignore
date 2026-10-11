@@ -11,3 +11,7 @@ wheels/
 
 # Environment secrets
 .env
+
+# Runtime data (SQLite + notes)
+backend/data/
+

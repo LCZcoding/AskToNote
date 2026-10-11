@@ -31,10 +31,11 @@
   - 验证：手写脚本调 `chat("ping")` 返回字符串；`chat_stream` 能逐块 `yield` 非空增量。
   - 实测：`uv run pytest -q` → `14 passed`（含 10 个 LLM 单测）；真实调用 `chat` 返回 `str`（`pong 🏓 …`），`chat_stream` 逐块产出非空增量 `'hello'`；确认 openai 3.28.0 的 `chat.completions.create` 支持 `model/messages/stream/response_format`，`MODEL=deepseek-flash` 真实可用（Plan §12 #7 风险消除）。
 
-- [ ] **T1.3 SQLite 记忆层骨架**
+- [x] **T1.3 SQLite 记忆层骨架**
   - 做：`app/memory.py` 建库建表（`concepts`/`user_profile`/`notes`/`questions`/`annotations`，DDL 见 Plan §3）；初始化 `PRAGMA journal_mode=WAL`；按 Plan §7「DB 访问约定」实现**短连接 + 写操作全局锁**；`user_profile` 初始化 id=1 空背景。
-  - 产出：`app/memory.py`、`data/asktonote.db`。
+  - 产出：`app/memory.py`、`data/asktonote.db`（另加 `tests/test_memory.py`；`data/` 为运行期产物，见下「实测」说明）。
   - 验证：首次运行自动建库；`sqlite3` 打开后 5 张表结构与 Plan §3 一致。
+  - 实测：`uv run pytest -q` → `24 passed`（新增 10 个 memory 用例，覆盖建库/表结构/默认值/WAL/唯一约束/幂等/短连接+写锁）；真实建库 `sqlite3` 校验 → 表 `{concepts,user_profile,notes,questions,annotations}` 齐全、`journal_mode=wal`、`user_profile=[(1,'',0)]`。（注：`backend/data/` 为运行期产物，是否纳入 `.gitignore` 待确认。）
 
 - [ ] **T1.4 笔记文件读写**
   - 做：`app/notes.py` 实现读文件、创建文件（先写 `# {title}`）、末尾追加 Q/A 区块；**目录不存在时自动创建 `data/notes/`**；加**模块级文件写锁**，且锁**覆盖"读→改→写"整段**（Plan §7）。
