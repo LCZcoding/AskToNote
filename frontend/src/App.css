@@ -1,15 +1,13 @@
-/* 应用外壳布局：顶部标题栏固定 + 主区滚动。 */
+/* 应用外壳布局：顶部标题栏 + 主区（笔记区，内部滚动）+ 底部提问区。 */
 
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
 }
 
 .app-header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  flex: 0 0 auto;
   padding: 12px 24px;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
@@ -27,7 +25,16 @@
 
 .app-main {
   flex: 1 1 auto;
+  overflow-y: auto;
   padding: 24px;
+}
+
+/* 提问 / 问题确认区（Plan §8） */
+.app-ask {
+  flex: 0 0 auto;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
 }
 
 .app-hint {

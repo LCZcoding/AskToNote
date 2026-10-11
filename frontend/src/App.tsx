@@ -2,11 +2,13 @@
 //
 // 启动加载（Plan §8）：页面加载时调 `GET /api/notes`（按 `updated_at` 倒序）→
 // 有主题则**自动打开最近更新的一篇**（“继续上次学习”）；无主题显示空态、引导提问。
-// 提问/问题确认区与设置页在后续任务（T2.5/T2.6）接入。
+// 底部为提问 / 问题确认区（AskBar + QuestionConfirm，Plan §8）；设置页待 M4 接入。
 
 import { useEffect, useState } from 'react'
 import { getNote, getNotes } from './api'
+import AskBar from './components/AskBar'
 import NoteView from './components/NoteView'
+import QuestionConfirm from './components/QuestionConfirm'
 import { useStore } from './store'
 import './App.css'
 
@@ -56,11 +58,13 @@ function App() {
       </header>
 
       <main className="app-main">
-        {state === 'loading' && <p className="app-hint">正在加载…</p>}
-        {state === 'error' && (
+        {noteSlug === '' && state === 'loading' && (
+          <p className="app-hint">正在加载…</p>
+        )}
+        {noteSlug === '' && state === 'error' && (
           <p className="app-hint app-hint--error">加载失败：{error}</p>
         )}
-        {state === 'empty' && (
+        {noteSlug === '' && state === 'empty' && (
           <div className="app-empty">
             <p>还没有任何主题。</p>
             <p>提出你的第一个问题，长成第一篇笔记吧。</p>
@@ -68,6 +72,12 @@ function App() {
         )}
         {noteSlug !== '' && <NoteView />}
       </main>
+
+      {/* 提问 / 问题确认区（Plan §8：同一区域按状态复用） */}
+      <div className="app-ask">
+        <QuestionConfirm />
+        <AskBar />
+      </div>
     </div>
   )
 }

@@ -52,6 +52,12 @@ interface StoreState {
   annotations: AnnotationItem[]
   /** 模式B 产出的候选问题队列。 */
   pendingQuestions: PendingQuestion[]
+  /**
+   * 大块追问的引用片段（Spec FR-4a/FR-4b）。
+   * 由笔记区划词（T3.4）写入、提问区（AskBar）读取并展示在输入框上方；
+   * 空串 = 无引用片段。仅进 Prompt（`context`），不进 `## 问题` 标题。
+   */
+  pendingContext: string
 }
 
 interface StoreActions {
@@ -90,6 +96,10 @@ interface StoreActions {
   removeAnnotation: (id: string) => void
   clearAnnotations: () => void
 
+  // —— 引用片段（大块追问）——
+  /** 写入/清空引用片段（清空传空串）。 */
+  setPendingContext: (text: string) => void
+
   // —— 候选问题（模式B 之后）——
   setPendingQuestions: (questions: CandidateQuestion[]) => void
   updatePendingQuestion: (
@@ -114,6 +124,7 @@ export const useStore = create<Store>()((set) => ({
   optimizeCard: null,
   annotations: [],
   pendingQuestions: [],
+  pendingContext: '',
 
   openNote: (slug, markdown) => set({ noteSlug: slug, noteMarkdown: markdown }),
   appendDelta: (text) => set((s) => ({ noteMarkdown: s.noteMarkdown + text })),
@@ -141,6 +152,8 @@ export const useStore = create<Store>()((set) => ({
   removeAnnotation: (id) =>
     set((s) => ({ annotations: s.annotations.filter((a) => a.id !== id) })),
   clearAnnotations: () => set({ annotations: [] }),
+
+  setPendingContext: (text) => set({ pendingContext: text }),
 
   setPendingQuestions: (questions) =>
     set({

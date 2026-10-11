@@ -137,10 +137,11 @@
   - 验证：笔记 MD 正常渲染，内链显示为高亮标签；**点击标注原词跳到其解释、点解释的「↩」跳回原词**；已有主题时刷新页面自动打开最近更新的一篇。
   - 实测：`npm run build`（`tsc -b && vite build`）→ 通过（222 modules）。`remark-wikilink.ts` 为 **remark 插件**（mdast 阶段把文本节点里的 `[[…]]` 换成 `html` 节点 `<span class="wikilink" data-slug="…">概念</span>`，交由 `rehype-raw` 解析成真实 span；`[[slug#概念]]` 取概念名做显示、slug 存入 `data-slug`/`title`；HTML 转义防注入）；`NoteView.tsx` = `react-markdown` + `rehypePlugins={[rehypeRaw]}` + `remarkPlugins={[remarkWikilink]}` 渲染 `store.noteMarkdown`；`App.tsx` 启动调 `GET /api/notes` → 有主题则 `GET /api/note/{slug}` 自动打开第一篇并 `openNote`，无主题显示空态、失败显示错误。**浏览器实测**（uvicorn :8000 + `npm run dev` :5173，预置一篇含 `[[容器]]`/`[[docker#镜像]]` 与双向锚点 `anno-ab12cd34` 的笔记）：① 启动**自动打开**该主题（未出现空态）；② `document.querySelectorAll('.wikilink')` → `SPAN|wikilink|容器`、`SPAN|wikilink|镜像`（内链高亮生效）；③ 点原词「命名空间」`location.hash` → `#anno-ab12cd34`、点「↩」→ `#anno-ab12cd34-src`（**双向跳转生效**，靠浏览器原生锚点导航、无额外 JS）；④ 控制台无 error/warning；⑤ 删除笔记后刷新 → 空态 `app-empty` 文案「还没有任何主题。…」正确。验证产物（临时笔记文件、`notes` 行、两个临时脚本）已清理。
 
-- [ ] **T2.5 提问区 + 问题确认卡（模式A）**
+- [x] **T2.5 提问区 + 问题确认卡（模式A）**
   - 做：`AskBar.tsx`（输入原始问题 +「优化」；**支持引用片段**——大块追问带入时在输入框上方显示引用文本，问题**可留空** → 默认「请详细讲解这段内容」，请求携带 `context`，见 **T1.12**/Spec FR-4b）与 `QuestionConfirm.tsx`（确认卡：**优化后问题可编辑**；主题只读显示"并入《title》/新建《title》"，`slug` 不可改）→ 确认发起。
-  - 产出：`AskBar.tsx`、`QuestionConfirm.tsx`。
+  - 产出：`AskBar.tsx`、`QuestionConfirm.tsx`（另加 `AskBar.css`/`QuestionConfirm.css`、`store.ts` 新增 `pendingContext` 字段与 `setPendingContext`、`App.tsx`/`App.css` 接入底部提问区、Plan §8 同步 store 字段说明）。
   - 验证：提问 → 弹出确认卡 → 改问题 → 确认后发出；带引用片段提问时请求体含 `context`、问题留空走默认文案。
+  - 实测：`npm run build` → 通过（226 modules）；`npm run lint` → 无告警。`AskBar`：引用片段非空时在输入框上方显示并可「移除」，问题可留空（有引用片段时用默认文案「请详细讲解这段内容」），`optimizeInitial({question,slug,context})` → `setInitialCard`；请求中/有确认卡待处理时禁用按钮，优化成功后清空输入。`QuestionConfirm`：**常驻渲染**（错误提示不随卡片消失），优化后问题可编辑、主题只读显示「并入/新建《title》」+ slug；确认 → `beginStreaming()` → 目标主题与当前不同则先 `getNote` 切换笔记区（404 则空）→ `streamAnswer({question,slug,title,context},{onDelta:appendDelta, onDone:finishStreaming, onError:failStreaming+提示})`。`App` 底部接入 `.app-ask`（QuestionConfirm + AskBar），空态/加载提示改为**仅在未打开主题时**显示（避免提问后与笔记区重叠）。**浏览器实测**（uvicorn :8000 + `npm run dev` :5173，真实调用大模型）：① 空态输入「什么是 Docker 容器？」→「优化」→ 出现确认卡（「新建《Docker 容器》」+ slug `docker`，问题可编辑）；② 改题为「…请用生活化的类比解释。」→「确认并作答」→ `.note-view` 由 205 字**流式增长到 2051 字**并渲染出 `h1`；③ 抓包确认 `POST /api/answer` 请求体为**改后**的 `question` + `slug`/`title`；④ 注入引用片段后**空问题**点「优化」→ 抓包确认 `POST /api/optimize/initial` 的 `question` = 「请详细讲解这段内容」且 `context` 与注入文本一致；⑤ 控制台无报错。验证产物（临时 `docker` 笔记文件 + `notes`/`questions` 行、`main.tsx` 临时注入钩子、临时脚本、两个服务）已清理。
 
 - [ ] **T2.6 流式打字机（笔记区底部实时渲染 + done 覆盖校正）**
   - 做：`delta` 直接在**笔记区底部**累积渲染出当前新 Q/A 块；`done` 用后端 `note_markdown` **覆盖校正**；`streaming` 期间禁止标注。
