@@ -25,10 +25,11 @@
   - 验证：`uv run python -c "from app.config import settings; print(settings.model)"` 输出 `deepseek-flash`。
   - 实测：`uv sync` 装依赖（openai 解析为 3.28.0）；`uv run pytest -q` → `4 passed`；验证命令输出 `deepseek-flash`。（注：`MODEL=deepseek-flash` 的 ID 有效性问题见 Plan §12 #7，T1.2 真实调用时再确认。）
 
-- [ ] **T1.2 LLM 抽象层**
+- [x] **T1.2 LLM 抽象层**
   - 做：`app/llm.py` 按 Plan §5 实现 `LLMClient` Protocol 与 `DeepSeekClient`（`chat` / `chat_stream`，OpenAI SDK + `base_url`）。
-  - 产出：`app/llm.py`。
+  - 产出：`app/llm.py`（另加 `tests/test_llm.py`，mock OpenAI、不真实计费）。
   - 验证：手写脚本调 `chat("ping")` 返回字符串；`chat_stream` 能逐块 `yield` 非空增量。
+  - 实测：`uv run pytest -q` → `14 passed`（含 10 个 LLM 单测）；真实调用 `chat` 返回 `str`（`pong 🏓 …`），`chat_stream` 逐块产出非空增量 `'hello'`；确认 openai 3.28.0 的 `chat.completions.create` 支持 `model/messages/stream/response_format`，`MODEL=deepseek-flash` 真实可用（Plan §12 #7 风险消除）。
 
 - [ ] **T1.3 SQLite 记忆层骨架**
   - 做：`app/memory.py` 建库建表（`concepts`/`user_profile`/`notes`/`questions`/`annotations`，DDL 见 Plan §3）；初始化 `PRAGMA journal_mode=WAL`；按 Plan §7「DB 访问约定」实现**短连接 + 写操作全局锁**；`user_profile` 初始化 id=1 空背景。
