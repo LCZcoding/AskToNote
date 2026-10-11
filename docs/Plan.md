@@ -227,7 +227,7 @@ MODEL=deepseek-flash
 
 ## 6. Prompt 模板（正文）
 
-> **占位符渲染约定**：`{topics}` → `"slug: title"`（如 `docker: Docker 入门`）；`{concepts_mastered}` → `score ≥ 50` 的概念，`名称(等级)`（如 `容器(familiar)`）；`{concepts_learning}` → `score < 50` 的概念，`名称(等级)`（如 `镜像(unfamiliar)`）。**概念记忆一律按 `score` 分这两类喂给 AI**——`< 50` 的多为用户标注过、尚未学会的词，**不得当作已掌握**。`{concepts_existing}`（**仅模式B 使用**）→ **全部概念名清单、不含分数/等级**（如 `容器, 镜像, 低耦合`），供模式B **优先复用同名概念**；`{question}`（**仅模式②**）为空时渲染为「（未提供，仅凭片段与上下文）」。**空值约定**：除 `{question}`（见上）与 `{slug}`（空 = 新会话/新主题，见模式A 模板）外，其余占位符为空时**统一渲染为「（暂无）」**——典型：新主题首问的 `{note_markdown}`、首个会话的 `{topics}`/`{background}`/`{concepts_mastered}`/`{concepts_learning}`、模式B 的 `{concepts_existing}`。
+> **占位符渲染约定**：`{topics}` → `"slug: title"`（如 `docker: Docker 入门`）；`{concepts_mastered}` → `score ≥ 50` 的概念，`名称(等级)`（如 `容器(familiar)`）；`{concepts_learning}` → `score < 50` 的概念，`名称(等级)`（如 `镜像(unfamiliar)`）。**概念记忆一律按 `score` 分这两类喂给 AI**——`< 50` 的多为用户标注过、尚未学会的词，**不得当作已掌握**。`{concepts_existing}`（**仅模式B 使用**）→ **全部概念名清单、不含分数/等级**（如 `容器, 镜像, 低耦合`），供模式B **优先复用同名概念**；`{question}`（**模式①/模式A/模式②** 均用）为空时渲染为「（未提供，仅凭片段与上下文）」（模式①/模式A 的入参 `question` 为必填，实际不空）。**空值约定**：除 `{question}`（见上）与 `{slug}`（空 = 新会话/新主题，见模式A 模板）外，其余占位符为空时**统一渲染为「（暂无）」**——典型：新主题首问的 `{note_markdown}`、首个会话的 `{topics}`/`{background}`/`{concepts_mastered}`/`{concepts_learning}`、模式B 的 `{concepts_existing}`。
 
 ### 6.1 解答笔记智能体 — 模式①作答（流式纯 Markdown）
 
@@ -240,6 +240,7 @@ MODEL=deepseek-flash
 【尚不熟悉的概念】{concepts_learning}   // score<50，多为用户标注过、尚未学会的词，如 "镜像(unfamiliar)"
 【其他主题】{topics}   // 形如 "docker: Docker 入门"
 【当前笔记】{note_markdown}
+【用户问题】{question}
 
 【要求】
 1. 根据用户背景与掌握度决定讲解深度，必要时用其熟悉领域做类比；对【尚不熟悉的概念】要讲透，**不得当作用户已掌握**。
@@ -287,6 +288,7 @@ MODEL=deepseek-flash
 【用户背景】{background}
 【已掌握概念】{concepts_mastered}   // score≥50，如 "容器(familiar)"
 【尚不熟悉的概念】{concepts_learning}   // score<50（用户标注过、尚未学会）
+【用户问题】{question}
 
 【任务】
 1. 把用户的问题优化得更清晰、更聚焦。

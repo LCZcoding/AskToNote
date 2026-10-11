@@ -79,3 +79,51 @@ def render_answer_note_prompt(
             "note_markdown": _or_na(note_markdown),
         },
     )
+
+
+# --- Plan §6.3 问题优化智能体 — 模式A（初始问题 + 命名主题） --------------------
+
+OPTIMIZE_INITIAL_TEMPLATE = """你是提问优化与主题命名助手。
+
+【当前主题】{slug}（当前主题 slug；为空表示新会话/新主题）
+【现有主题】{topics}   // 形如 "docker: Docker 入门"
+【用户背景】{background}
+【已掌握概念】{concepts_mastered}   // score≥50，如 "容器(familiar)"
+【尚不熟悉的概念】{concepts_learning}   // score<50（用户标注过、尚未学会）
+【用户问题】{question}
+
+【任务】
+1. 把用户的问题优化得更清晰、更聚焦。
+2. 判断该问题是否属于一个**新主题**（与当前主题核心概念链关联弱，属并行关系）：
+   - 是新主题 → 给出英文短名 slug 与中文标题 title，slug **不得与【现有主题】中任何 slug 重复**。
+   - 不是 → slug/title 与当前主题一致。
+
+【输出】只输出 JSON：{"optimized_question": "...", "slug": "...", "title": "..."}
+"""
+
+
+def render_optimize_initial_prompt(
+    *,
+    question: str,
+    slug: str,
+    background: str,
+    concepts_mastered: Iterable[Mapping[str, str]],
+    concepts_learning: Iterable[Mapping[str, str]],
+    topics: Iterable[Mapping[str, str]],
+) -> str:
+    """渲染模式A的 user prompt（§6.3）。
+
+    `slug` 与 `question` **原样保留**（不参与「（暂无）」兜底）：空 slug = 新会话/新主题；
+    `question` 为必填入参（见 §6 渲染约定）。
+    """
+    return _fill(
+        OPTIMIZE_INITIAL_TEMPLATE,
+        {
+            "slug": slug,
+            "topics": format_topics(topics),
+            "background": _or_na(background),
+            "concepts_mastered": format_concepts(concepts_mastered),
+            "concepts_learning": format_concepts(concepts_learning),
+            "question": question,
+        },
+    )

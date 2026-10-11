@@ -1,5 +1,8 @@
-"""路由层：`POST /api/answer`（T1.7 SSE 流式作答 + 落盘）、
-`GET /api/note/{slug}` 与 `GET /api/notes`（T1.9 读接口），见 Plan §4.1 / §7。
+"""路由层（Plan §4.1 / §7）：
+
+- `POST /api/answer`（T1.7）：SSE 流式作答 + 落盘；
+- `GET /api/note/{slug}`、`GET /api/notes`（T1.9）：读接口；
+- `POST /api/optimize/initial`（T1.10）：模式A 优化初始问题 + 命名主题。
 
 并发模型（Plan §7「接口实现约定」）：接口用**同步 `def`**，由 FastAPI 自动放入线程池，
 同步 LLM/文件/DB 等待只占用工作线程、不阻塞事件循环；SSE 用 `StreamingResponse` 配
@@ -14,9 +17,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app import memory, notes
+from app.agents import question_optimizer
 from app.agents.answer_note import answer_note_stream
 from app.config import settings
 from app.llm import DeepSeekClient, LLMClient
+from app.parse import JsonParseError
 
 router = APIRouter(prefix="/api")
 
@@ -147,3 +152,41 @@ def get_note(slug: str) -> dict:
 def get_notes() -> list[dict]:
     """主题列表（Plan §4.1）：`[{slug, title}]`，按 `updated_at` 倒序（最新在前）。"""
     return [{"slug": n["slug"], "title": n["title"]} for n in memory.list_notes()]
+
+
+class OptimizeInitialRequest(BaseModel):
+    """`POST /api/optimize/initial` 入参（Plan §4.1）：原始问题 + 当前主题 slug（可空 = 新会话）。"""
+
+    question: str
+    slug: str = ""
+
+
+@router.post("/optimize/initial")
+def optimize_initial(
+    req: OptimizeInitialRequest, llm: LLMClient = Depends(get_llm)
+) -> dict:
+    """模式A：优化初始问题 + 命名主题（Plan §7）。
+
+    组装 = 当前 slug + **全部**现有主题（供 slug 去重）+ 背景 + 两类概念 + 用户问题；
+    LLM 输出两层兜底后仍解析失败 → `502`（前端提示）。
+    """
+    background = memory.get_background()
+    concepts_mastered, concepts_learning = memory.concepts_by_mastery()
+    topics = [{"slug": n["slug"], "title": n["title"]} for n in memory.list_notes()]
+    try:
+        result = question_optimizer.optimize_initial(
+            llm,
+            question=req.question,
+            slug=req.slug,
+            background=background,
+            concepts_mastered=concepts_mastered,
+            concepts_learning=concepts_learning,
+            topics=topics,
+        )
+    except JsonParseError as exc:
+        raise HTTPException(status_code=502, detail=f"问题优化失败：{exc}")
+    return {
+        "optimized_question": result.optimized_question,
+        "slug": result.slug,
+        "title": result.title,
+    }

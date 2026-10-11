@@ -76,10 +76,18 @@
   - 实测：`uv run pytest -q` → `72 passed`（新增 4 个读接口用例：笔记全文一致、未知主题 404、按 `updated_at` 倒序且仅暴露 `slug`/`title`、空库返回 `[]`）。真实 HTTP 冒烟（`uvicorn --port 8001` + `curl.exe`）：`GET /api/notes` → `[{"slug":"smoke","title":"SMOKE 主题"}]`；`GET /api/note/smoke` → `{"slug":"smoke","title":"SMOKE 主题","markdown":"# SMOKE 主题\n\n## SMOKE 问题\n\nSMOKE 正文。\n"}`；未知 slug → `404`。冒烟产物已清理（文件与 `notes`/`questions` 行删除）。
 
 
-- [ ] **T1.10 模式A 接口（基础版）**
+- [x] **T1.10 模式A 接口（基础版）**
   - 做：`prompts.py` 落 Plan §6.3 模板；`question_optimizer.py` 实现模式A 方法；`POST /api/optimize/initial`：入参 `{question, slug?}` → 出参 `{optimized_question, slug, title}`（组装时按 Plan §6 渲染约定注入背景与两类概念）。**注**：主题边界判定与 slug 合法性校验的完善在 **M5 T5.1**。
-  - 产出：`app/agents/question_optimizer.py`（模式A）、模式A Prompt、`app/api.py` 路由。
+  - 产出：`app/agents/question_optimizer.py`（模式A）、模式A Prompt（`prompts.py`）、`app/api.py` 路由（另加 `tests/test_question_optimizer.py`、`test_api.py` 各 4 用例）。**前置**：Plan §6 补 `【用户问题】{question}`（见 T1.11 背景）。
   - 验证：传 `{question}` 返回结构符合契约、字段齐全（JSON 解析容错生效）。
+  - 实测：`uv run pytest -q` → `80 passed`（新增 8 个用例：Prompt 渲染 2、智能体 2、路由 4）。覆盖：问题注入 Prompt、空 slug 原样保留（不替换「（暂无）」）、空背景/概念/主题统一「（暂无）」、`json_mode=True` 调用、非法 JSON 回喂重试 1 次成功、两次失败 → `502`、`【现有主题】`含全部主题（不排除当前，供 slug 去重）。真实调用 `optimize_initial`（slug 空 = 新主题）→ 返回 `{optimized_question: "Docker 中的「容器（container）」到底是什么？…", slug: "docker", title: "Docker 容器基础"}`，字段齐全、JSON 约束生效。
+
+
+- [ ] **T1.11 修复：模式①把用户问题传入 LLM（回归）**
+  - 做：Plan §6.1 已补 `【用户问题】{question}` 行；同步 `prompts.py` 的 `ANSWER_NOTE_TEMPLATE` 补该行、`render_answer_note_prompt` 加 `question` 参数（原样渲染、不走「（暂无）」）、`answer_note.py` 的 `answer_note_stream` 加 `question` 参数、`api.py` 的 `/api/answer` 传入 `req.question`；补/改测试断言问题进入作答 Prompt。
+  - 背景：T1.6/T1.7 落地时 Plan §6.1 缺 `{question}` 占位符，导致**作答 Prompt 未包含用户问题**（新主题首问 `note_markdown` 为空时尤其失真）。属**回归修复**，与 T1.10 分开提交。
+  - 产出：`app/prompts.py`、`app/agents/answer_note.py`、`app/api.py`（+ 相应测试）。
+  - 验证：`uv run pytest` 全绿；作答 Prompt 中可见 `【用户问题】…`。
 
 ---
 

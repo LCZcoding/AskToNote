@@ -18,15 +18,20 @@ from main import app
 
 
 class FakeLLM:
-    """可配置分块/异常、并记录 prompt 的假客户端。"""
+    """可配置分块/异常/JSON 响应、并记录 prompt 的假客户端。"""
 
-    def __init__(self, chunks=None, error: Exception | None = None) -> None:
+    def __init__(self, chunks=None, error: Exception | None = None, json_responses=None) -> None:
         self.chunks: list[str] = list(chunks or [])
         self.error = error
-        self.calls: list[tuple[str, str]] = []
+        self.json_responses: list[str] = list(json_responses or [])
+        self.calls: list[tuple[str, str]] = []       # chat_stream 调用
+        self.json_calls: list[dict] = []             # chat 调用
 
     def chat(self, system: str, user: str, json_mode: bool = False) -> str:
-        raise AssertionError("模式①作答不应走非流式 chat")
+        self.json_calls.append({"system": system, "user": user, "json_mode": json_mode})
+        if not self.json_responses:
+            raise AssertionError("未预置 JSON 响应（该接口不应走非流式 chat）")
+        return self.json_responses.pop(0)
 
     def chat_stream(self, system: str, user: str):
         self.calls.append((system, user))
@@ -264,3 +269,71 @@ def test_list_notes_empty_when_no_notes(env) -> None:
     """无主题时返回空列表。"""
     client, _ = env
     assert client.get("/api/notes").json() == []
+
+
+# ---------------------------------------------------------------------------
+# 模式A：POST /api/optimize/initial（Plan §4.1 / §6.3 / §7）
+# ---------------------------------------------------------------------------
+
+
+def test_optimize_initial_returns_contract(env) -> None:
+    """返回 `{optimized_question, slug, title}`；Prompt 注入问题且以 json_mode 调用。"""
+    client, holder = env
+    holder["llm"] = FakeLLM(
+        json_responses=[
+            json.dumps(
+                {"optimized_question": "什么是 Docker 容器", "slug": "docker", "title": "Docker 入门"}
+            )
+        ]
+    )
+    resp = client.post("/api/optimize/initial", json={"question": "docker 里的容器是啥"})
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "optimized_question": "什么是 Docker 容器",
+        "slug": "docker",
+        "title": "Docker 入门",
+    }
+    call = holder["llm"].json_calls[0]
+    assert call["json_mode"] is True
+    assert "【用户问题】docker 里的容器是啥" in call["user"]
+
+
+def test_optimize_initial_prompt_lists_all_topics_and_raw_slug(env) -> None:
+    """【现有主题】含全部主题（用于 slug 去重、不排除当前）；当前 slug 原样渲染。"""
+    client, holder = env
+    memory.insert_note("Docker 入门", "docker", "p")
+    memory.insert_note("Java 基础", "java", "p")
+    holder["llm"] = FakeLLM(
+        json_responses=[
+            json.dumps({"optimized_question": "Q2", "slug": "docker", "title": "Docker 入门"})
+        ]
+    )
+    client.post("/api/optimize/initial", json={"question": "Q", "slug": "docker"})
+    user = holder["llm"].json_calls[0]["user"]
+    assert "docker: Docker 入门" in user
+    assert "java: Java 基础" in user
+    assert "【当前主题】docker（" in user
+
+
+def test_optimize_initial_retries_on_bad_json(env) -> None:
+    """首次非法 JSON → 回喂重试 1 次成功（T1.8 容错生效）。"""
+    client, holder = env
+    holder["llm"] = FakeLLM(
+        json_responses=[
+            "这不是 JSON",
+            json.dumps({"optimized_question": "OK", "slug": "docker", "title": "Docker"}),
+        ]
+    )
+    resp = client.post("/api/optimize/initial", json={"question": "Q"})
+    assert resp.status_code == 200
+    assert resp.json()["optimized_question"] == "OK"
+    assert len(holder["llm"].json_calls) == 2
+
+
+def test_optimize_initial_502_when_parse_fails(env) -> None:
+    """两次都非法 → 502（前端提示）。"""
+    client, holder = env
+    holder["llm"] = FakeLLM(json_responses=["坏输出一", "坏输出二"])
+    resp = client.post("/api/optimize/initial", json={"question": "Q"})
+    assert resp.status_code == 502
+    assert len(holder["llm"].json_calls) == 2
