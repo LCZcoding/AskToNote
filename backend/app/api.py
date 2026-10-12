@@ -5,7 +5,8 @@
 - `POST /api/optimize/initial`（T1.10）：模式A 优化初始问题（`new_topic` 时另命名主题）；
 - `POST /api/optimize/annotation`（T3.2）：模式B 标注 → 候选问题；
 - `POST /api/annotate`（T3.3）：模式②标注扩写 + 落盘；
-- `GET /api/memory`、`POST /api/memory/confirm`（T4.2）：记忆读接口 + 已理解确认。
+- `GET /api/memory`、`POST /api/memory/confirm`（T4.2）：记忆读接口 + 已理解确认；
+- `POST /api/memory`、`POST /api/memory/refresh`（T4.3）：背景写入锁定 + 会话级背景推断。
 
 并发模型（Plan §7「接口实现约定」）：接口用**同步 `def`**，由 FastAPI 自动放入线程池，
 同步 LLM/文件/DB 等待只占用工作线程、不阻塞事件循环；SSE 用 `StreamingResponse` 配
@@ -20,7 +21,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app import memory, notes
-from app.agents import question_optimizer
+from app.agents import background, question_optimizer
 from app.agents.answer_note import annotate, answer_note_stream
 from app.config import settings
 from app.llm import DeepSeekClient, LLMClient
@@ -188,6 +189,56 @@ def confirm_memory(req: ConfirmRequest) -> dict:
     if score is None:
         raise HTTPException(status_code=404, detail=f"概念不存在：{req.concept}")
     return {"ok": True, "score": score}
+
+
+class MemoryWriteRequest(BaseModel):
+    """`POST /api/memory` 入参（Plan §4.1）：用户**手动设置**的背景，可选。
+
+    `background=None`（字段缺省）→ 不写不锁；传入任意字符串（含空串）→ 写入并置 `background_locked=1`。
+    """
+
+    background: str | None = None
+
+
+@router.post("/memory")
+def write_memory(req: MemoryWriteRequest) -> dict:
+    """手动设置用户背景（Plan §7）：写 `background` 且置 `background_locked=1`（此后 refresh 不再覆盖）。
+
+    不带 `background` 时不做任何写入、也不锁定。概念分数**只读**，不经此接口修改。
+    """
+    if req.background is not None:
+        memory.set_background(req.background)
+    return {"ok": True}
+
+
+@router.post("/memory/refresh")
+def refresh_memory(llm: LLMClient = Depends(get_llm)) -> dict:
+    """会话级一次背景推断（Spec FR-18 / Plan §6.5 / §7）。
+
+    两种情况**跳过 LLM**、直接返回：① 背景已锁定 → 返回已存（手改）背景；
+    ② 概念与主题均为空 → 返回空串。否则调背景推断，**仅当 `background_locked=0` 时写回**。
+    解析失败 → `502`（与其他 LLM 路由一致）。
+    """
+    if memory.is_background_locked():
+        return {"background": memory.get_background()}
+
+    concepts_mastered, concepts_learning = memory.concepts_by_mastery()
+    topics = [{"slug": n["slug"], "title": n["title"]} for n in memory.list_notes()]
+    if not concepts_mastered and not concepts_learning and not topics:
+        return {"background": ""}
+
+    try:
+        result = background.infer_background(
+            llm,
+            concepts_mastered=concepts_mastered,
+            concepts_learning=concepts_learning,
+            topics=topics,
+        )
+    except JsonParseError as exc:
+        raise HTTPException(status_code=502, detail=f"背景推断失败：{exc}")
+
+    memory.set_background_if_unlocked(result.background)
+    return {"background": result.background}
 
 
 class OptimizeInitialRequest(BaseModel):

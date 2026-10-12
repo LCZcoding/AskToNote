@@ -291,10 +291,12 @@
   - 实现：`api.py` 新增 `GET /api/memory`（`get_background()` + `list_concepts()`，后者只取 `name/score`、`level` 后端推导、**不含 `pending`**）与 `ConfirmRequest{concept}` + `POST /api/memory/confirm`（直接复用 T4.1 的 `confirm_concept`，不复制规则；返回 `{ok, score}`）。**概念不在库 → `404`**（沿用「资源不存在」约定，且不建行；经用户确认的边界）。
   - 实测：`uv run pytest -q` → **148 passed**（基线 143 + 新增 5）：覆盖字段形状且严格相等（保证**无 `pending` 键**）、背景取自 `user_profile`、confirm `10→20` 且读接口复核分数/等级、连点两次只 +10（幂等）、不存在概念 404 且不建行。未越界触碰 T4.3（`POST /api/memory`、`/api/memory/refresh`）与 T4.6（`/api/annotate` 接线、前端「已理解」）。
 
-- [ ] **T4.3 背景写入与刷新**
+- [x] **T4.3 背景写入与刷新**
   - 做：`POST /api/memory`（带 `background` 则写库并置 `background_locked=1`）；`POST /api/memory/refresh`（会话级一次：读概念按 `score≥50`/`<50` 分两类 + 主题清单**仅标题** → 背景推断 Prompt → `background_locked=0` 才写回）；落 Plan §6.5 背景推断 Prompt。
   - 产出：两个路由 + 背景推断 Prompt。
   - 验证：首次（概念为空）返回空串；手改背景后再 refresh 不被覆盖。
+  - 实现：`prompts.py` 新增 `BACKGROUND_TEMPLATE` + `render_background_prompt`（§6.5 逐字落地，三类占位符复用 `format_concepts`/`format_topics`）；新建 `app/agents/background.py`（`infer_background` 经 `chat_json` 返回 `BackgroundResult`，Prompt 已含 `{concepts_mastered}/{concepts_learning}` 与 `{topics}`）；`memory.py` 新增 `is_background_locked()`、`set_background()`（写并锁）、`set_background_if_unlocked()`（带 `background_locked=0` 守卫的推断写回）；`api.py` 新增 `POST /api/memory`（`background=None` 不写不锁，传字符串含空串则写入并锁）与 `POST /api/memory/refresh`（**锁定→跳 LLM 返回已存背景；概念与主题均空→跳 LLM 返回空串**，否则推断且仅未锁时写回，解析失败 502）。经用户拍板：新建独立 `background.py` 模块并把 Plan §2 目录补齐；refresh 在锁定/空数据时跳过 LLM。
+  - 实测：`uv run pytest -q` → **164 passed**（基线 148 + 新增 16）：`test_background.py` 4 例（三类占位符渲染、空值「（暂无）」、解析 `background`/空串、`json_mode` + 系统提示词）；`test_memory.py` 4 例（默认未锁、手改写锁、未锁写回且保持未锁、已锁跳过不覆盖）；`test_api.py` 8 例（带/不带/空串 background、空数据跳 LLM、未锁推断写回且两类概念入 prompt、仅主题也调 LLM、锁定跳 LLM 保留手改背景、解析失败 502 且背景不变）。未越界：未触碰 T4.5（设置页接线）与 T4.6（`/api/annotate` 记忆写入接线）。
 
 - [ ] **T4.4 记忆影响下次回答**
   - 做：复核 `answer_note.py`/`question_optimizer.py` 的 Prompt 组装**确实读 `concepts` 表**（M1 时该表为空 → 传空列表），修正任何硬编码/遗漏。

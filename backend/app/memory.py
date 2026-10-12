@@ -149,6 +149,37 @@ def get_background() -> str:
     return row["background"] if row else ""
 
 
+def is_background_locked() -> bool:
+    """背景是否已被用户手改锁定（`background_locked=1` 时 refresh 不再覆盖）。"""
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT background_locked FROM user_profile WHERE id = 1"
+        ).fetchone()
+    return bool(row["background_locked"]) if row else False
+
+
+def set_background(background: str) -> None:
+    """用户**手动设置**背景：写 `background` 且置 `background_locked=1`（Spec FR-18 / Plan §7）。"""
+    with write_connection() as conn:
+        conn.execute(
+            "UPDATE user_profile SET background = ?, background_locked = 1 WHERE id = 1",
+            (background,),
+        )
+
+
+def set_background_if_unlocked(background: str) -> bool:
+    """**推断结果**写回：仅当 `background_locked=0` 时才写 `background`，返回是否写入。
+
+    加 `background_locked = 0` 条件做守卫——即便并发中用户刚好手改锁定，也不会被覆盖。
+    """
+    with write_connection() as conn:
+        cur = conn.execute(
+            "UPDATE user_profile SET background = ? WHERE id = 1 AND background_locked = 0",
+            (background,),
+        )
+        return cur.rowcount > 0
+
+
 def list_concepts() -> list[dict]:
     """全部概念 `[{name, score, level}]`（`level` 后端推导；不含内部字段 `pending`）。"""
     with connection() as conn:

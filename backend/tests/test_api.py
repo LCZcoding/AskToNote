@@ -655,3 +655,94 @@ def test_confirm_missing_concept_returns_404(env) -> None:
     assert resp.status_code == 404
     assert "不存在" in resp.json()["detail"]
     assert client.get("/api/memory").json()["concepts"] == []
+
+
+# ---------------------------------------------------------------------------
+# T4.3 背景写入与刷新（Spec FR-18 / Plan §6.5 / §7）
+# ---------------------------------------------------------------------------
+
+
+def test_post_memory_writes_and_locks(env) -> None:
+    """POST /api/memory 带 background → 写库且锁定；GET 复核读到该背景。"""
+    client, _ = env
+    resp = client.post("/api/memory", json={"background": "熟悉 Java 后端"})
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    assert client.get("/api/memory").json()["background"] == "熟悉 Java 后端"
+    assert memory.is_background_locked() is True
+
+
+def test_post_memory_without_background_is_noop(env) -> None:
+    """POST /api/memory 不带 background → 不写、不锁，仍返回 {ok}。"""
+    client, _ = env
+    assert client.post("/api/memory", json={}).json() == {"ok": True}
+    assert memory.get_background() == ""
+    assert memory.is_background_locked() is False
+
+
+def test_post_memory_empty_string_locks(env) -> None:
+    """显式传空串也算「带 background」→ 写空串并锁定（用户主动清空）。"""
+    client, _ = env
+    client.post("/api/memory", json={"background": "熟悉 Java"})
+    assert client.post("/api/memory", json={"background": ""}).json() == {"ok": True}
+    assert memory.get_background() == ""
+    assert memory.is_background_locked() is True
+
+
+def test_refresh_empty_data_returns_empty_without_llm(env) -> None:
+    """首次（概念与主题均为空）→ 返回空串，且不调用 LLM。"""
+    client, holder = env
+    holder["llm"] = FakeLLM(json_responses=["不该被调用"])
+    resp = client.post("/api/memory/refresh")
+    assert resp.status_code == 200
+    assert resp.json() == {"background": ""}
+    assert holder["llm"].json_calls == []
+
+
+def test_refresh_infers_and_writes_when_unlocked(env) -> None:
+    """有概念且未锁定 → 调 LLM 推断并写回，返回推断背景；两类概念进入 prompt。"""
+    client, holder = env
+    _seed_concept("容器", 60, 0)
+    _seed_concept("镜像", 10, 1)
+    holder["llm"] = FakeLLM(json_responses=[json.dumps({"background": "熟悉容器技术"})])
+    resp = client.post("/api/memory/refresh")
+    assert resp.json() == {"background": "熟悉容器技术"}
+    assert memory.get_background() == "熟悉容器技术"
+    assert memory.is_background_locked() is False
+    user = holder["llm"].json_calls[0]["user"]
+    assert "容器(familiar)" in user
+    assert "镜像(unfamiliar)" in user
+
+
+def test_refresh_calls_llm_when_only_topics(env) -> None:
+    """概念为空但有主题 → 仍调 LLM（主题推断「正在学」），主题清单（slug: title）进入 prompt。"""
+    client, holder = env
+    memory.insert_note("Docker 入门", "docker", "p")
+    holder["llm"] = FakeLLM(json_responses=[json.dumps({"background": "正在学 Docker"})])
+    resp = client.post("/api/memory/refresh")
+    assert resp.json() == {"background": "正在学 Docker"}
+    user = holder["llm"].json_calls[0]["user"]
+    assert "docker: Docker 入门" in user
+
+
+def test_refresh_skips_llm_and_keeps_manual_background_when_locked(env) -> None:
+    """背景已锁定 → refresh 不调 LLM，返回已存（手改）背景，不被覆盖。"""
+    client, holder = env
+    _seed_concept("容器", 60, 0)
+    client.post("/api/memory", json={"background": "手改背景"})
+    holder["llm"] = FakeLLM(json_responses=["不该被调用"])
+    resp = client.post("/api/memory/refresh")
+    assert resp.json() == {"background": "手改背景"}
+    assert holder["llm"].json_calls == []
+    assert memory.get_background() == "手改背景"
+
+
+def test_refresh_parse_failure_returns_502(env) -> None:
+    """两次解析仍失败 → 502（与其他 LLM 路由一致），不改动既有背景。"""
+    client, holder = env
+    _seed_concept("容器", 60, 0)
+    holder["llm"] = FakeLLM(json_responses=["坏输出一", "坏输出二"])
+    resp = client.post("/api/memory/refresh")
+    assert resp.status_code == 502
+    assert "背景推断失败" in resp.json()["detail"]
+    assert memory.get_background() == ""

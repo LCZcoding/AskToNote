@@ -37,7 +37,8 @@ AskToNote/
 │   │   ├── parse.py            # JSON 输出约束：Pydantic 模型 + 解析容错 + 回喂重试（§7）
 │   │   ├── agents/
 │   │   │   ├── answer_note.py       # 解答笔记智能体（模式①作答 / ②标注扩写）
-│   │   │   └── question_optimizer.py # 问题优化智能体（模式A / 模式B）
+│   │   │   ├── question_optimizer.py # 问题优化智能体（模式A / 模式B）
+│   │   │   └── background.py        # 背景推断智能体（会话级一次，§6.5）
 │   │   ├── memory.py           # SQLite 读写 + 掌握度规则
 │   │   └── notes.py            # MD 读写 + 段落定位插入
 │   ├── tests/
@@ -421,7 +422,9 @@ POST /api/memory/confirm:
   3. 返回 { ok, score }
 
 POST /api/memory/refresh（**会话级一次**，前端启动时调）:
-  读 concepts（含等级）+ 主题清单（仅标题）→ 调背景推断 → 若 background_locked=0 则写回 user_profile.background → 返回 { background }
+  ① 若 background_locked=1 → 直接返回已存（手改）背景、**不调 LLM**（省调用且响应与库一致）；
+  ② 否则读 concepts（含等级）+ 主题清单（仅标题），若**概念与主题均为空** → 直接返回空串、**不调 LLM**；
+  ③ 否则调背景推断（§6.5）→ **仅当 background_locked=0 时**写回 user_profile.background → 返回 { background }
 ```
 
 **掌握度规则（v1，程序计算）**：分数制 0–100（等级由分数推导）——概念被标注**不改分**（**不在库 → score=10**）并置 `pending`（**同一概念多次标注仍只算一次确认**）；用户点「已理解」（**仅 `pending=1` 时生效，幂等**）→ `pending=0`、`score=min(100, score+10)`；`score≥80` 即 `mastered`。**概念分数只读、不可手改**。时间衰减留 v2。

@@ -303,3 +303,40 @@ def render_optimize_annotation_prompt(
             "concepts_existing": format_concept_names(concepts_existing),
         },
     )
+
+
+# --- Plan §6.5 背景推断（会话级一次） -----------------------------------------
+
+BACKGROUND_TEMPLATE = """根据用户的概念掌握档案与已有学习主题，推断其熟悉或正在学习的领域，用一句话概括。
+
+【已掌握概念】{concepts_mastered}   // score≥50，如 "容器(familiar)"
+【尚不熟悉的概念】{concepts_learning}   // score<50（用户标注过、尚未学会）
+【已有主题】{topics}   // 形如 "docker: Docker 入门"（只给标题，不含笔记正文）
+
+【要求】
+1. 由【已掌握概念】推断**熟悉**的领域（如多个 Java 概念达 familiar/mastered → "熟悉 Java 后端"）；由【尚不熟悉的概念】**或【已有主题】**推断**正在学习**的领域（如已有 Docker 主题 → "正在学 Docker"）。
+2. 无法明显推断则输出空字符串。
+
+【输出】只输出 JSON：
+{"background": "熟悉 Java 后端（可为空字符串）"}
+"""
+
+
+def render_background_prompt(
+    *,
+    concepts_mastered: Iterable[Mapping[str, str]],
+    concepts_learning: Iterable[Mapping[str, str]],
+    topics: Iterable[Mapping[str, str]],
+) -> str:
+    """渲染背景推断的 user prompt（§6.5）。
+
+    概念两档 → `名称(等级)`、主题 → `slug: title`；空值统一渲染为「（暂无）」。
+    """
+    return _fill(
+        BACKGROUND_TEMPLATE,
+        {
+            "concepts_mastered": format_concepts(concepts_mastered),
+            "concepts_learning": format_concepts(concepts_learning),
+            "topics": format_topics(topics),
+        },
+    )

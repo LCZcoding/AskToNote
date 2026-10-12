@@ -303,3 +303,36 @@ def test_level_boundaries_from_score(db_path) -> None:
     assert memory.level_from_score(50) == "familiar"
     assert memory.level_from_score(79) == "familiar"
     assert memory.level_from_score(80) == "mastered"
+
+
+# ---------------------------------------------------------------------------
+# T4.3 背景写入与锁定（Spec FR-18 / Plan §7）
+#   手改：写 background 且 background_locked=1（此后 refresh 不再覆盖）
+#   推断写回：仅 locked=0 时写；返回是否写入
+# ---------------------------------------------------------------------------
+
+
+def test_background_unlocked_by_default(db_path) -> None:
+    """初始未锁定。"""
+    assert memory.is_background_locked() is False
+
+
+def test_set_background_writes_and_locks(db_path) -> None:
+    """手改背景 → 写库并锁定。"""
+    memory.set_background("熟悉 Java 后端")
+    assert memory.get_background() == "熟悉 Java 后端"
+    assert memory.is_background_locked() is True
+
+
+def test_set_background_if_unlocked_writes_when_unlocked(db_path) -> None:
+    """未锁定时推断写回成功，且仍保持未锁定（后续可继续被推断刷新）。"""
+    assert memory.set_background_if_unlocked("正在学 Docker") is True
+    assert memory.get_background() == "正在学 Docker"
+    assert memory.is_background_locked() is False
+
+
+def test_set_background_if_unlocked_skips_when_locked(db_path) -> None:
+    """已锁定（用户手改过）→ 推断写回被跳过，背景不被覆盖。"""
+    memory.set_background("手改背景")
+    assert memory.set_background_if_unlocked("推断背景") is False
+    assert memory.get_background() == "手改背景"
