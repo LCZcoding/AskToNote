@@ -81,8 +81,8 @@ def test_insert_after_anchor_when_source_hit() -> None:
     assert "容器是一种" in out and "的虚拟化技术。" in out
 
 
-def test_insert_at_paragraph_end_when_anchor_crosses_inline_markup() -> None:
-    """anchor 跨行内标记（源码搜不到）→ 兜底命中 → 段末插解释，且**降级为单向**（无来源锚点/回跳/包词）。"""
+def test_insert_at_line_end_when_anchor_crosses_inline_markup() -> None:
+    """anchor 跨行内标记（源码搜不到）→ 兜底命中 → **行末**插解释，且**降级为单向**（无来源锚点/回跳/包词）。"""
     content = "# Docker\n\n## 容器与镜像\n\n**容器**和**镜像**是核心。\n"
     out = notes.apply_annotation(content, "容器和镜像", "（本节要弄清的一对概念）")
     m = re.search(r'<a id="anno-([0-9a-f]{8})"></a>（本节要弄清的一对概念）', out)
@@ -91,6 +91,28 @@ def test_insert_at_paragraph_end_when_anchor_crosses_inline_markup() -> None:
     assert "-src" not in out
     assert "[↩]" not in out
     assert "[容器和镜像](#anno-" not in out
+
+
+def test_fallback_in_markup_inserts_at_anchor_line_end() -> None:
+    """原词在 `[[内链]]` 内、且位于多行列表项之一 → 解释插到**原词所在行**行末（非整个列表末尾）。"""
+    content = (
+        "# T\n\n## Q\n\n"
+        "1. 后端做三个 [[RESTful API]] + 一张表。\n"
+        "2. 然后把它俩连起来。\n"
+        "3. 再决定往哪边深入。\n"
+    )
+    out = notes.apply_annotation(content, "RESTful API", "（一种接口风格）")
+    assert '1. 后端做三个 [[RESTful API]] + 一张表。<a id="anno-' in out
+    assert out.endswith("（一种接口风格）\n2. 然后把它俩连起来。\n3. 再决定往哪边深入。\n")
+    assert "[[RESTful API]]" in out  # 内链语法未被截断
+    assert "-src" not in out and "[↩]" not in out
+
+
+def test_fallback_with_newline_anchor_inserts_at_paragraph_end() -> None:
+    """选区跨行（anchor 含换行）→ 逐行都不命中 → 退回整段脱标记匹配，插**段末**。"""
+    content = "# T\n\n## Q\n\n**容器**和\n**镜像**是核心。\n\n后一段。\n"
+    out = notes.apply_annotation(content, "容器和\n镜像", "（一对概念）")
+    assert out.endswith("（一对概念）\n\n后一段。\n")
 
 
 def test_source_hit_inside_markup_degrades_to_one_way() -> None:
@@ -139,27 +161,33 @@ def test_insert_raises_when_anchor_empty() -> None:
         notes.apply_annotation("# T\n\n正文。\n", "   ", "（x）")
 
 
-def test_insert_deep_adds_four_hash_section_after_paragraph() -> None:
-    """depth=deep → 段落之后紧跟一个 `####` 新章节，其 content 行首标题压为 `###`。"""
-    content = "# Docker\n\n## 容器\n\n容器是核心概念。\n"
+def test_insert_deep_appends_section_at_file_end() -> None:
+    """depth=deep → 原地**只留括号简释**（无锚点/回跳）；`####` 新章节（末尾带「↩」）追加到**文件最末尾**。"""
+    content = "# Docker\n\n## 容器\n\n容器是核心概念。\n\n## 镜像\n\n镜像是只读模板。\n"
     out = notes.apply_annotation(
         content,
         "核心概念",
         "（比喻：集装箱）",
         depth="deep",
-        new_section={"title": "镜像", "content": "## 细节\n镜像是只读模板。"},
+        new_section={"title": "镜像深入", "content": "## 细节\n镜像是只读模板。"},
     )
-    m = re.search(r'<a id="anno-([0-9a-f]{8})-src"></a>\[核心概念\]\(#anno-([0-9a-f]{8})\)', out)
+    m = re.search(
+        r'<a id="anno-([0-9a-f]{8})-src"></a>\[核心概念\]\(#anno-([0-9a-f]{8})\)（比喻：集装箱）', out
+    )
     assert m is not None
     n = m.group(1)
-    # 简释末尾的「↩」回跳之后，紧跟 `####` 章节
-    assert f'（比喻：集装箱）[↩](#anno-{n}-src)。\n\n#### 镜像\n\n### 细节\n镜像是只读模板。' in out
-    # 正文小节不出现 `##`（已压为 `###`）
-    assert "\n## 细节" not in out
+    # 原地简释：不带解释侧锚点、不带「↩」回跳
+    assert f'<a id="anno-{n}"></a>（比喻：集装箱）' not in out
+    assert "（比喻：集装箱）[↩]" not in out
+    # `####` 章节追加到文件末尾，锚点在标题行内、末尾带「↩」回跳
+    assert out.endswith(
+        f'#### 镜像深入 <a id="anno-{n}"></a>\n\n### 细节\n镜像是只读模板。\n\n[↩](#anno-{n}-src)\n'
+    )
+    assert "\n## 细节" not in out  # content 行首 `##` 已压为 `###`
 
 
 def test_insert_redirects_when_hit_only_in_heading() -> None:
-    """anchor 仅命中标题行 → 改取该标题下**首个正文段**，段末插解释侧锚点（单向）。"""
+    """anchor 仅命中标题行 → 改取该标题下**首个正文段**，在其**首行行末**插解释侧锚点（单向）。"""
     content = "# Docker\n\n## 容器与镜像\n\n容器是核心概念。\n"
     out = notes.apply_annotation(content, "容器与镜像", "（此处展开）")
     assert "## 容器与镜像" in out

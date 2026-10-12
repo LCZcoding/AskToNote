@@ -1,5 +1,5 @@
 """T1.4 笔记文件读写：创建、读取、末尾追加 Q/A 区块。
-T1.5 段落定位插入：按空行切段 → 源码 grep 优先（词后）→ 逐段脱标记兜底（段末）。
+T1.5 段落定位插入：按空行切段 → 源码 grep 优先（词后）→ 脱标记兜底（**原词所在行末**）。
 
 文件布局：`data/notes/{slug}.md`（相对运行目录 backend/，见 Plan §1/§2）。
 写入约定：模块级 `threading.Lock` 把「读→改→写」整段包成临界区（Plan §7
@@ -52,7 +52,7 @@ def append_qa_block(slug: str, question: str, body: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# T1.5 段落定位插入（Plan §4.1：定位由后端工具函数完成，优先词后、兜底段末）
+# T1.5 段落定位插入（Plan §4.1：定位由后端工具函数完成，优先词后、兜底行末）
 # ---------------------------------------------------------------------------
 
 # 行首标题符（`#`/`##`/…，含其后空白）；用于「脱标记匹配」与「压标题」。
@@ -144,17 +144,40 @@ def _is_in_markup(ptext: str, idx: int, length: int) -> bool:
     return False
 
 
+def _line_spans(content: str, start: int, end: int) -> list[tuple[int, int]]:
+    """把 `[start, end)` 段落按行切成 `[行首, 行末)` 区间（行末不含换行符）。"""
+    spans: list[tuple[int, int]] = []
+    pos = start
+    while pos < end:
+        nl = content.find("\n", pos, end)
+        line_end = end if nl == -1 else nl
+        spans.append((pos, line_end))
+        if nl == -1:
+            break
+        pos = nl + 1
+    return spans
+
+
+def _line_end_at(content: str, start: int, end: int, pos: int) -> int:
+    """返回段落 `[start, end)` 内包含位置 `pos` 的那一行的**行末**（用于降级命中定位）。"""
+    for line_start, line_end in _line_spans(content, start, end):
+        if line_start <= pos <= line_end:
+            return line_end
+    return end
+
+
 def _locate(
     content: str, paragraphs: list[tuple[int, int]], anchor: str
 ) -> tuple[int, int, int, str, int]:
     """定位插入点，返回 `(插入位置, 段落 start, 段落 end, 命中方式, 原词 start)`。
 
-    优先级（Plan §4.1）：源码命中正文段（词后）→ 脱标记命中正文段（段末）
-    → 仅命中标题行时改取该标题下首个正文段（段末）；都找不到报错。
+    优先级（Plan §4.1）：源码命中正文段（**词后**）→ 逐**行**脱标记命中（**该行行末**）
+    → 整段脱标记命中（**段末**，选区跨同一段内多行时）→ 仅命中标题行时改取该标题下
+    首个正文段（其**首行行末**）；都找不到报错。
 
-    命中方式：`"source"`（源码精确命中，词后）/ `"fallback"`（脱标记兜底，段末）
-    / `"heading"`（仅命中标题行，重定向段末）。`原词 start` 仅 `"source"` 有意义，
-    其余返回 `-1`（无源码精确位置 → 不包原词，降级单向，Spec FR-9c）。
+    命中方式：`"source"`（源码精确命中，词后）/ `"fallback"`（逐行脱标记，行末）
+    / `"paragraph"`（整段脱标记，段末）/ `"heading"`（仅命中标题行，重定向行末）。
+    `原词 start` 仅 `"source"` 有意义，其余返回 `-1`（无源码精确位置 → 不包原词、降级单向，Spec FR-9c）。
     """
     # 1) 源码 grep 优先：命中正文段 → 词后插入
     for start, end in paragraphs:
@@ -164,14 +187,17 @@ def _locate(
         idx = ptext.find(anchor)
         if idx != -1:
             return start + idx + len(anchor), start, end, "source", start + idx
-    # 2) 脱标记兜底：逐段脱去行内标记后命中正文段 → 段末插入
+    # 2) 脱标记兜底：先逐行（→ 行末，列表项/表格行各自成行时紧邻原词），再整段（→ 段末，跨行选区）
     for start, end in paragraphs:
         ptext = content[start:end]
         if _is_heading(ptext):
             continue
+        for line_start, line_end in _line_spans(content, start, end):
+            if anchor in _strip_inline_markup(content[line_start:line_end]):
+                return line_end, start, end, "fallback", -1
         if anchor in _strip_inline_markup(ptext):
-            return end, start, end, "fallback", -1
-    # 3) 仅命中标题行 → 改取该标题下首个正文段（段末）
+            return end, start, end, "paragraph", -1
+    # 3) 仅命中标题行 → 改取该标题下首个正文段（其**首行行末**）
     for i, (start, end) in enumerate(paragraphs):
         ptext = content[start:end]
         if not _is_heading(ptext):
@@ -179,7 +205,8 @@ def _locate(
         if anchor in ptext or anchor in _strip_inline_markup(ptext):
             for bstart, bend in paragraphs[i + 1:]:
                 if not _is_heading(content[bstart:bend]):
-                    return bend, bstart, bend, "heading", -1
+                    line_end = _line_spans(content, bstart, bend)[0][1]
+                    return line_end, bstart, bend, "heading", -1
     raise AnchorNotFoundError(anchor)
 
 
@@ -193,48 +220,57 @@ def apply_annotation(
 ) -> str:
     """在笔记全文中定位 `anchor` 并插入解释，返回插入后的全文（纯函数、不加锁）。
 
-    - `depth="brief"`：仅在插入点插入 `insert_text`（括号简释）；
-    - `depth="deep"`：插入 `insert_text`，并在目标段落之后紧跟一个 `####` 新章节
-      （`new_section.content` 的行首标题压为 `###`）。
+    - `depth="brief"`：插入点处插入 `<a id="anno-{n}"></a>` + `insert_text`（括号简释）+「↩」回跳；
+    - `depth="deep"`：原地**只插 `insert_text`**（括号简释，不带锚点、不带回跳），并把
+      `<a id="anno-{n}"></a>` + `#### 新章节`（+「↩」）**追加到笔记文件最末尾**
+      （`new_section.content` 的行首标题压为 `###`）——原词链接跳到底部章节、底部「↩」跳回原词。
 
     同时写入**标注双向跳转标记**（Spec FR-9c）：原词源码精确命中且不在链接/标记内时，
-    词前插来源锚点 `<a id="anno-{n}-src">`、词包成 `[原词](#anno-{n})`，解释侧插
-    `<a id="anno-{n}">` 并在简释末尾追加「↩」回跳；否则**降级单向**（只插解释侧锚点）。
-    `n = uuid4().hex[:8]`；`anno_id` 可显式指定（供调用方拿回同一 id 定位解释，见
-    `insert_annotation`）。
+    词前插来源锚点 `<a id="anno-{n}-src">`、词包成 `[原词](#anno-{n})`；否则**降级单向**
+    （不包原词、不加回跳，解释插到**原词所在行末**）。`n = uuid4().hex[:8]`；`anno_id`
+    可显式指定（供调用方拿回同一 id 定位解释，见 `insert_annotation`）。
     """
     if not anchor or not anchor.strip():
         raise AnchorNotFoundError(anchor)
     paragraphs = _split_paragraphs(content)
-    _insert_pos, para_start, para_end, kind, word_start = _locate(content, paragraphs, anchor)
+    insert_pos, para_start, para_end, kind, word_start = _locate(content, paragraphs, anchor)
 
     n = anno_id or uuid4().hex[:8]
-    explanation = f'<a id="anno-{n}"></a>{insert_text}'
     bidirectional = kind == "source" and not _is_in_markup(
         content[para_start:para_end], word_start - para_start, len(anchor)
     )
-    if bidirectional:  # 双向：包原词 + 来源锚点 + 解释侧锚点 + 「↩」回跳
-        word_end = word_start + len(anchor)
-        before = (
-            content[:word_start]
-            + f'<a id="anno-{n}-src"></a>[{anchor}](#anno-{n})'
-            + explanation
-            + f'[↩](#anno-{n}-src)'
-            + content[word_end:para_end]
-        )
-    else:  # 降级单向：只插解释侧锚点（不包原词、不加回跳），且一律插到**段末**
-        # （in-markup 降级若插在词后会切断原词所在的行内标记，故与兜底一致取段末）
-        before = content[:para_end] + explanation
 
-    after = content[para_end:]
+    if bidirectional:  # 双向：包原词 + 来源锚点；brief 在词后插解释侧锚点与「↩」
+        word_end = word_start + len(anchor)
+        link = f'<a id="anno-{n}-src"></a>[{anchor}](#anno-{n})'
+        inline = (
+            insert_text
+            if depth == "deep"  # 深释在文末，原地只留括号简释
+            else f'<a id="anno-{n}"></a>{insert_text}[↩](#anno-{n}-src)'
+        )
+        updated = content[:word_start] + link + inline + content[word_end:]
+    else:  # 降级单向：只插解释侧锚点 + 简释（deep 时原地只留简释），插到**原词所在行末**
+        # 源码命中但落在标记内时，插入点须改取该行行末（插在词后会切断 `[[…]]`/`**…**`）
+        pos = (
+            _line_end_at(content, para_start, para_end, word_start)
+            if kind == "source"
+            else insert_pos
+        )
+        inline = insert_text if depth == "deep" else f'<a id="anno-{n}"></a>{insert_text}'
+        updated = content[:pos] + inline + content[pos:]
+
     if depth != "deep":
-        return before + after
+        return updated
 
     if not new_section or not new_section.get("title"):
         raise ValueError("depth=deep 时必须提供 new_section{title, content}")
     body = compress_headings(new_section.get("content", "")).rstrip("\n")
-    section = f"#### {new_section['title']}\n\n{body}"
-    return before + "\n\n" + section + after
+    # 锚点写在 `####` 标题行**行内**（行首仍为 `#`，标题语法不被破坏），便于跳转后立即可见
+    section = f'#### {new_section["title"]} <a id="anno-{n}"></a>\n\n{body}'
+    if bidirectional:  # 「↩」只放在文末深释末尾（原地简释不带回跳）
+        section += f'\n\n[↩](#anno-{n}-src)'
+    tail = updated if updated.endswith("\n") else updated + "\n"
+    return tail + "\n" + section + "\n"
 
 
 def insert_annotation(
