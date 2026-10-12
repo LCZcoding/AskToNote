@@ -11,6 +11,7 @@
 """
 import json
 import re
+from collections.abc import Callable
 from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -39,8 +40,13 @@ class OptimizeInitialResult(BaseModel):
 
 
 class CandidateQuestion(BaseModel):
-    """模式B（§6.4）：单个候选问题；`concept`/`reason`/`kind` 为非关键字段、有默认值。"""
+    """模式B（§6.4）：单个候选问题；`concept`/`reason`/`kind` 为非关键字段、有默认值。
 
+    `snippet_index`（1-based）为**关键字段**——指明该候选问题所答的片段在输入 `snippets`
+    中的编号；缺失即视为契约不符、触发回喂重试（配对一律以它为准，Plan §6.4/§8）。
+    """
+
+    snippet_index: int
     text: str
     concept: str = ""
     kind: Literal["concept", "statement"] = "concept"
@@ -115,15 +121,28 @@ def parse_model(text: str, model: type[TModel]) -> TModel:
 _RETRY_SUFFIX = "\n\n【上一次输出无法解析，错误信息】{err}\n请严格按照要求，仅输出合法 JSON。"
 
 
-def chat_json(llm: LLMClient, system: str, user: str, model: type[TModel]) -> TModel:
-    """调 `chat(json_mode=True)` → 解析校验；不过则回喂错误重试 1 次，仍失败抛 `JsonParseError`。"""
+def chat_json(
+    llm: LLMClient,
+    system: str,
+    user: str,
+    model: type[TModel],
+    validate: Callable[[TModel], None] | None = None,
+) -> TModel:
+    """调 `chat(json_mode=True)` → 解析校验 →（可选）业务校验；不过则回喂错误重试 1 次，仍失败抛 `JsonParseError`。
+
+    `validate` 用于**无法在模型字段里表达的业务校验**（如模式B 的 `snippet_index` 须恰好覆盖 1..N）：
+    它抛出的异常与 Pydantic 校验失败同等对待，带上错误信息回喂重试。
+    """
     last_error: Exception | None = None
     current_user = user
     for _ in range(2):
         raw = llm.chat(system, current_user, json_mode=True)
         try:
-            return parse_model(raw, model)
-        except (ValueError, ValidationError) as exc:  # json 语法错 / 提取失败 / 校验不过
+            result = parse_model(raw, model)
+            if validate is not None:
+                validate(result)
+            return result
+        except (ValueError, ValidationError) as exc:  # 语法/提取/字段校验/业务校验任一不过
             last_error = exc
             current_user = user + _RETRY_SUFFIX.format(err=exc)
     raise JsonParseError(str(last_error)) from last_error

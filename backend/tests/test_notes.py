@@ -177,13 +177,23 @@ def test_insert_deep_requires_new_section() -> None:
 
 
 def test_insert_annotation_writes_file_under_lock(notes_dir) -> None:
-    """文件级插入函数复用写锁，落盘并返回更新后的全文。"""
+    """文件级插入函数复用写锁，落盘并返回 `(全文, 解释侧 anchor_id)`。"""
     notes.create_note("Docker", "docker")
     notes.append_qa_block("docker", "什么是容器", "容器是一种轻量化技术。")
-    out = notes.insert_annotation("docker", "轻量化", "（共享内核）")
+    out, anchor_id = notes.insert_annotation("docker", "轻量化", "（共享内核）")
+    assert anchor_id.startswith("anno-")
     assert "[轻量化](#anno-" in out
-    assert "（共享内核）[↩](#anno-" in out
+    assert f'<a id="{anchor_id}"></a>（共享内核）[↩](#anno-' in out
     assert notes.read_note("docker") == out
+
+
+def test_apply_annotation_uses_given_anno_id() -> None:
+    """显式传入 `anno_id` → 锚点用该 id（供调用方拿回同一 id 定位解释）。"""
+    out = notes.apply_annotation(
+        "# T\n\n## Q\n\n容器是核心。\n", "核心", "（x）", anno_id="deadbeef"
+    )
+    assert '<a id="anno-deadbeef-src"></a>[核心](#anno-deadbeef)' in out
+    assert '<a id="anno-deadbeef"></a>（x）[↩](#anno-deadbeef-src)' in out
 
 
 # ---------------------------------------------------------------------------

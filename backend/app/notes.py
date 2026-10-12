@@ -189,6 +189,7 @@ def apply_annotation(
     insert_text: str,
     depth: str = "brief",
     new_section: dict | None = None,
+    anno_id: str | None = None,
 ) -> str:
     """在笔记全文中定位 `anchor` 并插入解释，返回插入后的全文（纯函数、不加锁）。
 
@@ -199,14 +200,15 @@ def apply_annotation(
     同时写入**标注双向跳转标记**（Spec FR-9c）：原词源码精确命中且不在链接/标记内时，
     词前插来源锚点 `<a id="anno-{n}-src">`、词包成 `[原词](#anno-{n})`，解释侧插
     `<a id="anno-{n}">` 并在简释末尾追加「↩」回跳；否则**降级单向**（只插解释侧锚点）。
-    `n = uuid4().hex[:8]`。
+    `n = uuid4().hex[:8]`；`anno_id` 可显式指定（供调用方拿回同一 id 定位解释，见
+    `insert_annotation`）。
     """
     if not anchor or not anchor.strip():
         raise AnchorNotFoundError(anchor)
     paragraphs = _split_paragraphs(content)
     _insert_pos, para_start, para_end, kind, word_start = _locate(content, paragraphs, anchor)
 
-    n = uuid4().hex[:8]
+    n = anno_id or uuid4().hex[:8]
     explanation = f'<a id="anno-{n}"></a>{insert_text}'
     bidirectional = kind == "source" and not _is_in_markup(
         content[para_start:para_end], word_start - para_start, len(anchor)
@@ -241,14 +243,16 @@ def insert_annotation(
     insert_text: str,
     depth: str = "brief",
     new_section: dict | None = None,
-) -> str:
-    """在主题笔记中定位插入解释并落盘，返回更新后的全文。
+) -> tuple[str, str]:
+    """在主题笔记中定位插入解释并落盘，返回 `(更新后的全文, anchor_id)`。
 
+    `anchor_id` = 本次**解释侧锚点 id**（`anno-{n}`），供前端扩写成功后滚动定位并高亮该解释（Plan §4.1/§8）。
     复用模块级 `_file_lock`，锁覆盖「读 → 改 → 写」整段（Plan §7）。
     """
+    n = uuid4().hex[:8]
     with _file_lock:
         path = note_path(slug)
         content = path.read_text(encoding="utf-8")
-        updated = apply_annotation(content, anchor, insert_text, depth, new_section)
+        updated = apply_annotation(content, anchor, insert_text, depth, new_section, anno_id=n)
         path.write_text(updated, encoding="utf-8")
-        return updated
+        return updated, f"anno-{n}"

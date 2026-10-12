@@ -82,11 +82,12 @@ def test_parse_optimize_initial() -> None:
 
 
 def test_parse_optimize_annotation() -> None:
-    """模式B：候选问题列表（含 text/concept/kind/reason）。"""
+    """模式B：候选问题列表（含 snippet_index/text/concept/kind/reason）。"""
     out = parse.parse_model(
-        '{"questions": [{"text": "什么是镜像", "concept": "镜像", "kind": "concept", "reason": "用户标注了镜像"}]}',
+        '{"questions": [{"snippet_index": 1, "text": "什么是镜像", "concept": "镜像", "kind": "concept", "reason": "用户标注了镜像"}]}',
         OptimizeAnnotationResult,
     )
+    assert out.questions[0].snippet_index == 1
     assert out.questions[0].text == "什么是镜像"
     assert out.questions[0].kind == "concept"
 
@@ -113,7 +114,7 @@ def test_parse_annotate_deep_has_new_section() -> None:
 
 def test_optional_fields_fall_back_to_defaults() -> None:
     """非关键字段缺失按默认值兜底（候选问题 reason/kind、背景）。"""
-    q = CandidateQuestion.model_validate({"text": "什么是容器"})
+    q = CandidateQuestion.model_validate({"snippet_index": 1, "text": "什么是容器"})
     assert q.concept == ""
     assert q.kind == "concept"
     assert q.reason == ""
@@ -124,13 +125,19 @@ def test_optional_fields_fall_back_to_defaults() -> None:
 def test_invalid_kind_raises_validation_error() -> None:
     """kind 不在枚举内 → 校验失败。"""
     with pytest.raises(ValidationError):
-        CandidateQuestion.model_validate({"text": "x", "kind": "术语"})
+        CandidateQuestion.model_validate({"snippet_index": 1, "text": "x", "kind": "术语"})
 
 
 def test_missing_required_field_raises_validation_error() -> None:
     """缺少关键字段（如 optimized_question）→ 校验失败。"""
     with pytest.raises(ValidationError):
         OptimizeInitialResult.model_validate({"slug": "docker", "title": "Docker"})
+
+
+def test_candidate_question_missing_snippet_index_raises() -> None:
+    """候选问题缺 `snippet_index`（关键字段）→ 校验失败，触发回喂重试（Plan §6.4）。"""
+    with pytest.raises(ValidationError):
+        CandidateQuestion.model_validate({"text": "什么是容器"})
 
 
 # ---------------------------------------------------------------------------
@@ -170,9 +177,30 @@ def test_chat_json_raises_after_two_failures() -> None:
 def test_chat_json_retries_on_validation_error() -> None:
     """校验不过（而非 JSON 语法错误）也会触发回喂重试。"""
     fake = FakeLLM(
-        ['{"questions": [{"text": "x", "kind": "不是枚举"}]}',
-         '{"questions": [{"text": "x", "kind": "statement"}]}']
+        ['{"questions": [{"snippet_index": 1, "text": "x", "kind": "不是枚举"}]}',
+         '{"questions": [{"snippet_index": 1, "text": "x", "kind": "statement"}]}']
     )
     out = parse.chat_json(fake, "SYS", "USER", OptimizeAnnotationResult)
     assert out.questions[0].kind == "statement"
     assert len(fake.calls) == 2
+
+
+def test_chat_json_runs_extra_validate_and_retries_on_failure() -> None:
+    """`validate` 业务校验不通过 → 同样回喂重试；第二次通过则返回（Plan §6.4 覆盖 1..N）。"""
+    fake = FakeLLM(
+        [
+            '{"questions": [{"snippet_index": 1, "text": "x"}]}',
+            '{"questions": [{"snippet_index": 1, "text": "x"}, {"snippet_index": 2, "text": "y"}]}',
+        ]
+    )
+
+    def _need_two(result: OptimizeAnnotationResult) -> None:
+        if len(result.questions) != 2:
+            raise ValueError("必须恰好 2 条")
+
+    out = parse.chat_json(
+        fake, "SYS", "USER", OptimizeAnnotationResult, validate=_need_two
+    )
+    assert len(out.questions) == 2
+    assert len(fake.calls) == 2
+    assert "必须恰好 2 条" in fake.calls[1]["user"]

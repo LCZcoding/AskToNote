@@ -411,8 +411,8 @@ def test_optimize_annotation_returns_one_question_per_snippet(env) -> None:
             json.dumps(
                 {
                     "questions": [
-                        {"text": "什么是容器", "concept": "容器", "kind": "concept", "reason": "术语"},
-                        {"text": "镜像与容器的关系", "concept": "镜像", "kind": "concept", "reason": "术语"},
+                        {"snippet_index": 1, "text": "什么是容器", "concept": "容器", "kind": "concept", "reason": "术语"},
+                        {"snippet_index": 2, "text": "镜像与容器的关系", "concept": "镜像", "kind": "concept", "reason": "术语"},
                     ]
                 }
             )
@@ -426,13 +426,14 @@ def test_optimize_annotation_returns_one_question_per_snippet(env) -> None:
     data = resp.json()
     assert len(data["questions"]) == 2
     assert data["questions"][0] == {
+        "snippet_index": 1,
         "text": "什么是容器",
         "concept": "容器",
         "kind": "concept",
         "reason": "术语",
     }
     for q in data["questions"]:
-        assert set(q) == {"text", "concept", "kind", "reason"}
+        assert set(q) == {"snippet_index", "text", "concept", "kind", "reason"}
 
     call = holder["llm"].json_calls[0]
     assert call["json_mode"] is True
@@ -484,8 +485,12 @@ def test_annotate_brief_inserts_explanation_and_records(env) -> None:
         },
     )
     assert resp.status_code == 200
-    md = resp.json()["note_markdown"]
+    body = resp.json()
+    md = body["note_markdown"]
     assert "（容器是轻量级虚拟化单元）" in md
+    # 响应带解释侧锚点 id（前端据此滚动定位并高亮该解释，Plan §4.1/§8）
+    assert body["anchor_id"].startswith("anno-")
+    assert f'<a id="{body["anchor_id"]}"></a>（容器是轻量级虚拟化单元）' in md
     assert md == notes.read_note("docker")  # 返回与磁盘一致
 
     with memory.connection() as conn:
@@ -523,10 +528,12 @@ def test_annotate_deep_adds_four_hash_section(env) -> None:
         json={"slug": "docker", "anchor": "容器", "concept": "容器", "kind": "concept", "depth": "deep"},
     )
     assert resp.status_code == 200
-    md = resp.json()["note_markdown"]
+    body = resp.json()
+    md = body["note_markdown"]
     assert "#### 深入理解" in md
     assert "### 原理" in md
     assert all(line != "# 原理" for line in md.splitlines())  # content 行首标题已压为 ###
+    assert body["anchor_id"].startswith("anno-")
 
 
 def test_annotate_empty_question_falls_back_to_anchor(env) -> None:

@@ -155,8 +155,8 @@ def test_annotation_agent_returns_parsed_model_and_uses_json_mode() -> None:
             json.dumps(
                 {
                     "questions": [
-                        {"text": "什么是容器", "concept": "容器", "kind": "concept", "reason": "术语"},
-                        {"text": "为什么说容器是轻量级的", "concept": "容器", "kind": "statement", "reason": "说法"},
+                        {"snippet_index": 1, "text": "什么是容器", "concept": "容器", "kind": "concept", "reason": "术语"},
+                        {"snippet_index": 2, "text": "为什么说容器是轻量级的", "concept": "容器", "kind": "statement", "reason": "说法"},
                     ]
                 }
             )
@@ -170,6 +170,7 @@ def test_annotation_agent_returns_parsed_model_and_uses_json_mode() -> None:
         concepts_existing=["容器", "镜像"],
     )
     assert isinstance(out, OptimizeAnnotationResult)
+    assert [q.snippet_index for q in out.questions] == [1, 2]
     assert [q.text for q in out.questions] == ["什么是容器", "为什么说容器是轻量级的"]
     assert out.questions[1].kind == "statement"
     call = fake.calls[0]
@@ -177,6 +178,86 @@ def test_annotation_agent_returns_parsed_model_and_uses_json_mode() -> None:
     assert call["system"] == OPTIMIZE_ANNOTATION_SYSTEM_PROMPT
     assert "1. 容器" in call["user"] and "2. 容器是轻量级的" in call["user"]
     assert "容器, 镜像" in call["user"]
+
+
+def test_annotation_agent_accepts_reordered_indices() -> None:
+    """输出顺序可因学习顺序重排；只要 `snippet_index` 覆盖 1..N 即通过（配对以 index 为准）。"""
+    fake = FakeLLM(
+        [
+            json.dumps(
+                {
+                    "questions": [
+                        {"snippet_index": 2, "text": "第二个片段的问题", "concept": "B", "kind": "concept"},
+                        {"snippet_index": 1, "text": "第一个片段的问题", "concept": "A", "kind": "concept"},
+                    ]
+                }
+            )
+        ]
+    )
+    out = optimize_annotation(
+        fake,
+        snippets=["A", "B"],
+        note_markdown="",
+        background="",
+        concepts_existing=[],
+    )
+    assert [q.snippet_index for q in out.questions] == [2, 1]
+    assert len(fake.calls) == 1  # 顺序重排不触发重试
+
+
+def test_annotation_agent_retries_when_indices_not_covering_all_snippets() -> None:
+    """`snippet_index` 未恰好覆盖 1..N（如重复）→ 回喂重试 1 次，第二次正确则返回。"""
+    fake = FakeLLM(
+        [
+            json.dumps(
+                {
+                    "questions": [
+                        {"snippet_index": 1, "text": "重复编号", "concept": "A", "kind": "concept"},
+                        {"snippet_index": 1, "text": "重复编号", "concept": "B", "kind": "concept"},
+                    ]
+                }
+            ),
+            json.dumps(
+                {
+                    "questions": [
+                        {"snippet_index": 1, "text": "问题一", "concept": "A", "kind": "concept"},
+                        {"snippet_index": 2, "text": "问题二", "concept": "B", "kind": "concept"},
+                    ]
+                }
+            ),
+        ]
+    )
+    out = optimize_annotation(
+        fake,
+        snippets=["A", "B"],
+        note_markdown="",
+        background="",
+        concepts_existing=[],
+    )
+    assert [q.snippet_index for q in out.questions] == [1, 2]
+    assert len(fake.calls) == 2
+    assert "snippet_index" in fake.calls[1]["user"]  # 错误信息回喂
+
+
+def test_annotation_agent_raises_when_indices_still_wrong_after_retry() -> None:
+    """两次都没覆盖 1..N → 抛 `JsonParseError`，恰好调用 2 次。"""
+    bad = json.dumps(
+        {
+            "questions": [
+                {"snippet_index": 1, "text": "x", "concept": "A", "kind": "concept"}
+            ]
+        }
+    )
+    fake = FakeLLM([bad, bad])
+    with pytest.raises(JsonParseError):
+        optimize_annotation(
+            fake,
+            snippets=["A", "B"],
+            note_markdown="",
+            background="",
+            concepts_existing=[],
+        )
+    assert len(fake.calls) == 2
 
 
 def test_annotation_agent_raises_json_parse_error_after_two_tries() -> None:

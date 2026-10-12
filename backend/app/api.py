@@ -286,7 +286,7 @@ def annotate_route(req: AnnotateRequest, llm: LLMClient = Depends(get_llm)) -> d
 
     new_section = result.new_section.model_dump() if result.new_section else None
     try:
-        updated = notes.insert_annotation(
+        updated, anchor_id = notes.insert_annotation(
             req.slug, req.anchor, result.insert.insert_text, req.depth, new_section
         )
     except notes.AnchorNotFoundError as exc:
@@ -297,4 +297,4 @@ def annotate_route(req: AnnotateRequest, llm: LLMClient = Depends(get_llm)) -> d
     memory.insert_annotation(note_id, req.anchor, concept, req.depth)
     memory.insert_question(note_id, req.question or req.anchor, concept, "annotation")
     memory.touch_note(req.slug)
-    return {"note_markdown": updated}
+    return {"note_markdown": updated, "anchor_id": anchor_id}
