@@ -44,6 +44,26 @@
   margin: 4px 0;
 }
 
+/* GFM 表格（remark-gfm，Plan §8）：补边框与留白，避免解析成 <table> 却看不出是表格。 */
+.note-view table {
+  width: 100%;
+  margin: 0 0 12px;
+  border-collapse: collapse;
+  font-size: 0.94em;
+}
+.note-view th,
+.note-view td {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.note-view th {
+  background: var(--code-bg);
+  color: var(--text-h);
+  font-weight: 600;
+}
+
 .note-view a {
   color: var(--accent);
 }

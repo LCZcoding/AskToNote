@@ -212,6 +212,13 @@
   - 产出：`docs/Spec.md`、`docs/Plan.md`；后端 `app/prompts.py`（双模板 + 双 render）、`app/agents/question_optimizer.py`（`optimize_initial(new_topic, topics)` + 双 system prompt + 命名版非空校验）、`app/notes.py`（`sanitize_slug`）、`app/api.py`（`OptimizeInitialRequest{question, context, new_topic}` + 分支 + `_dedupe_slug`）、`tests/test_question_optimizer.py`、`tests/test_api.py`；前端 `src/types.ts`、`src/api.ts`、`src/store.ts`（`noteTitle`/`newTopicMode`/`openNote(slug,title,markdown)`/`startNewTopic`/`setInitialCard{newTopic}`）、`src/components/AskBar.tsx`、`src/components/QuestionConfirm.tsx`、新增 `src/components/TopicList.tsx`+`.css`、`src/App.tsx`+`App.css`（侧边栏布局）。
   - 验证：能在多个已有主题间切换查看、各自独立渲染；点「新建笔记」→ 提问 → 模式A 命名新 `slug`/`title` → 落盘为新主题文件；已打开主题直接提问 → 默认并入当前主题追加。后端 `uv run pytest -q` → **115 passed**（新增/改：优化版不含 `{topics}`、命名版含【现有主题】、命名版空 slug 回喂重试、`/api/optimize/initial` 分 `new_topic` 两分支、slug 清洗去重 `docker!`+已有`docker` → `docker-2`）；前端 `npm run build` + `npm run lint` 全绿。
   - 背景：用户反馈**无法验证上一轮 bug 修复合集**——缺少打开**指定笔记**的入口，只能看自动打开的最近一篇；且明确要求**「不要依赖模式A 自动判定新主题……一定要去除干净」**。两项同批落地：去掉 AI 判定后，本项「新建笔记」入口成为**唯一的建主题路径**。
+  - 补充（用户实测反馈）：① 点「＋ 新建」后笔记区仍显示旧笔记 → `startNewTopic` 改为**清空 `noteSlug`/`noteTitle`/`noteMarkdown` 从空白页开始**，并在 App 补「新笔记」引导态（原先 `state='ready'` 时会一片空白无提示）；② 空白页**没有取消入口**（用户「哪里有取消页面」）→ 新增 `cancelNewTopic` + 空白页「取消」按钮，取消后回到「未打开笔记」引导态，再点侧边栏主题恢复。
+
+- [x] **T3.9 Markdown 表格渲染修正（补 `remark-gfm`）**
+  - 现象：回答/笔记里的 GFM 表格（`| a | b |` 与 `| --- |`）**整段裸露为管道符文本**，完全不渲染成表格（用户实测截图反馈）。
+  - 根因：`react-markdown` **默认不含 GFM**——表格不属于 CommonMark；`NoteView` 只挂了 `rehype-raw` 与 `remark-wikilink`，缺 `remark-gfm` 时表格语法退化为普通段落。
+  - 产出：`frontend` 安装 `remark-gfm`；`NoteView.tsx` 抽出 `REMARK_PLUGINS=[remarkGfm, remarkWikilink]` 供正文与流式两处 `<Markdown>` 复用；`NoteView.css` 补 `.note-view table/th/td` 的边框与留白；`docs/Plan.md` §8 新增「**GFM 渲染**」条。
+  - 验证：浏览器实测笔记 `code-refactoring` → `.note-view table` = **3**、`th` = **8**、`td` = **44**，表头（目标/具体表现/不重构的后果）与首行文字与源码一致，笔记区 `innerText` **不再含 `| --- |`**，无 console 报错；`npm run build` + `npm run lint` 全绿。
 
 ---
 

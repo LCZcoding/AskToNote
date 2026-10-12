@@ -4,7 +4,8 @@
 // - 开启 **rehype-raw**，以渲染后端标注写入的**行内 HTML 锚点**
 //   （`<a id="anno-{n}">`）与 `[↩]` 回跳链接（Spec FR-9c）；
 // - 「原词 ⇄ 解释」的跳转由浏览器**原生锚点导航**完成，无需额外 JS；
-// - 外挂 `remark-wikilink`，把 `[[概念名]]` / `[[slug#概念]]` 高亮（v1 不可点击）；
+// - 外挂 `remark-gfm`（**表格**/删除线/任务列表/自动链接——表格不属 CommonMark，缺它会退化成段落）
+//   与 `remark-wikilink`，把 `[[概念名]]` / `[[slug#概念]]` 高亮（v1 不可点击）；
 // - **流式打字机（T2.6）**：`delta` 累积在 `streamingText`，在笔记区**底部**以
 //   `## {问题}` 为题实时长出新的 Q/A 块（带光标）；`done` 用后端 `note_markdown`
 //   覆盖校正；流式期间禁止划词标注（Plan §8）。
@@ -17,12 +18,18 @@
 import { useEffect, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
+import remarkGfm from 'remark-gfm'
 import remarkWikilink from '../remark-wikilink'
 import { useCanAnnotate, useIsStreaming, useStore } from '../store'
 import './NoteView.css'
 
 /** 大块选区阈值（Spec FR-4a）：去首尾空白后**字符数 > 60** 判为大块 → 追问。 */
 const BIG_BLOCK_MAX = 60
+
+// `remark-gfm` 提供**表格**、删除线、任务列表、自动链接等 GFM 语法（表格不属 CommonMark，
+// 缺了它 `| a | b |` 会退化成普通段落）——回答里表格很常见，必须开启（Plan §8）。
+const REMARK_PLUGINS = [remarkGfm, remarkWikilink]
+const REHYPE_PLUGINS = [rehypeRaw]
 
 /** 划词气泡（`position: fixed`，坐标相对视口）。 */
 interface Bubble {
@@ -145,7 +152,7 @@ export default function NoteView() {
         className={`note-view${isStreaming ? ' note-view--streaming' : ''}`}
         onMouseUp={handleMouseUp}
       >
-        <Markdown remarkPlugins={[remarkWikilink]} rehypePlugins={[rehypeRaw]}>
+        <Markdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS}>
           {markdown}
         </Markdown>
 
@@ -153,7 +160,7 @@ export default function NoteView() {
           <section className="note-streaming">
             <div className="note-streaming-status">正在作答…（暂不可标注）</div>
             {streamingQuestion !== '' && <h2>{streamingQuestion}</h2>}
-            <Markdown remarkPlugins={[remarkWikilink]} rehypePlugins={[rehypeRaw]}>
+            <Markdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS}>
               {streamingText}
             </Markdown>
             <span className="note-cursor" aria-hidden="true" />
