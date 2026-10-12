@@ -8,19 +8,45 @@
 
 .app-header {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px 24px;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
 }
+.app-header-text {
+  min-width: 0;
+}
 .app-title {
   margin: 0;
   font-size: 18px;
+  font-weight: 600;
   line-height: 1.4;
   color: var(--text-h);
 }
 .app-subtitle {
   margin: 2px 0 0;
   font-size: 13px;
+}
+
+/* 标题栏「设置」入口（Plan §8：设置页）。 */
+.app-settings {
+  flex: 0 0 auto;
+  padding: 4px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.app-settings:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 
 /* 主体：左侧主题列表（固定宽）+ 右侧笔记区（自适应，内部滚动）。 */

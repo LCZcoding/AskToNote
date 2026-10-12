@@ -2,20 +2,32 @@
 //
 // 启动加载（Plan §8）：页面加载时调 `GET /api/notes`（按 `updated_at` 倒序）→
 // 有主题则**自动打开最近更新的一篇**（“继续上次学习”）；无主题显示空态、引导提问。
-// 底部为提问 / 问题确认区（AskBar + QuestionConfirm，Plan §8）；设置页待 M4 接入。
+// 底部为提问 / 问题确认区（AskBar + QuestionConfirm，Plan §8）；设置页由标题栏「设置」打开。
+//
+// 会话开始的背景刷新（Plan §8「背景展示与刷新」/ Spec FR-18）：**页面加载/刷新**
+// （=会话开始）时调一次 `POST /api/memory/refresh`，**长会话中途不重算**；设置页另可手动刷新。
 
 import { useEffect, useState } from 'react'
-import { getNote, getNotes } from './api'
+import { getNote, getNotes, refreshBackground } from './api'
 import AnnotationList from './components/AnnotationList'
 import AskBar from './components/AskBar'
 import NoteView from './components/NoteView'
 import QuestionConfirm from './components/QuestionConfirm'
+import SettingsPanel from './components/SettingsPanel'
 import TopicList from './components/TopicList'
 import { useStore } from './store'
 import './App.css'
 
 /** 启动加载状态；与 store 的交互阶段无关，仅管首屏。 */
 type LoadState = 'loading' | 'ready' | 'empty' | 'error'
+
+/**
+ * 会话级背景刷新**只调一次**（Plan §8：长会话中途不重算）。
+ *
+ * 用**模块级标志**而非 ref：StrictMode 下 effect 会跑两遍（ref 会被重挂载重置），
+ * 而本模块变量在**同一次页面加载**内保持不变；页面刷新会重新加载模块 → 自然重置。
+ */
+let sessionRefreshed = false
 
 function App() {
   const noteSlug = useStore((s) => s.noteSlug)
@@ -24,6 +36,16 @@ function App() {
   const openNote = useStore((s) => s.openNote)
   const [state, setState] = useState<LoadState>('loading')
   const [error, setError] = useState('')
+  const [settingsOpen, setSettingsOpen] = useState(false)
+
+  // 会话开始：页面加载/刷新时后台刷新一次背景（失败不阻断首屏，可在设置页手动重试）。
+  useEffect(() => {
+    if (sessionRefreshed) return
+    sessionRefreshed = true
+    void refreshBackground().catch(() => {
+      // 后台推断失败：静默忽略，不阻断首屏；用户可在设置页「刷新背景」手动重试。
+    })
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -57,8 +79,17 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1 className="app-title">AskToNote</h1>
-        <p className="app-subtitle">提问即笔记 · 一问一答长成知识</p>
+        <div className="app-header-text">
+          <h1 className="app-title">AskToNote</h1>
+          <p className="app-subtitle">提问即笔记 · 一问一答长成知识</p>
+        </div>
+        <button
+          type="button"
+          className="app-settings"
+          onClick={() => setSettingsOpen(true)}
+        >
+          设置
+        </button>
       </header>
 
       <div className="app-body">
@@ -109,6 +140,9 @@ function App() {
         <QuestionConfirm />
         <AskBar />
       </div>
+
+      {/* 设置页（Plan §8 / Spec FR-18）：背景展示、编辑覆盖、手动刷新 */}
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
     </div>
   )
 }

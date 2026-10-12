@@ -305,10 +305,13 @@
   - 审计：逐条核对四条读路径——`/api/answer`、`/api/optimize/initial`（优化版/命名版）、`/api/annotate` 均经 `memory.get_background()` + `memory.concepts_by_mastery()` 读 `concepts` 表并传入 Prompt；`/api/optimize/annotation`（模式B）按 Plan §6.4/§7 仅取 `list_concept_names()`（**仅名称**）。**无硬编码、无遗漏，生产代码零改动**。
   - 实测：`uv run pytest -q` → **168 passed**（基线 164 + 新增 4）：`test_memory.py` 2 例（`concepts_by_mastery` 在 50 分界正确分档且带等级、空表返回两个空列表）；`test_api.py` 2 例（`/api/optimize/initial`、`/api/annotate` 两类分别进入 Prompt）。`/api/answer` 的两类断言由既有用例覆盖。无新接口，未越界。
 
-- [ ] **T4.5 设置页 + 会话级刷新**
+- [x] **T4.5 设置页 + 会话级刷新**
   - 做：`SettingsPanel.tsx` 显示当前背景、可编辑覆盖、提供"刷新背景"按钮；**页面加载/刷新时**调一次 `/api/memory/refresh`（长会话中途不重算）。
   - 产出：`SettingsPanel.tsx` + 启动刷新逻辑。
   - 验证：刷新页面触发一次 refresh；手改背景后自动推断不再覆盖。
+  - 实现：新增 `components/SettingsPanel.tsx` + `.css`（浮层面板）——打开时 `GET /api/memory` 取背景填入 `textarea`；「保存」→ `POST /api/memory {background}`（写库并置 `background_locked=1`，**无改动时禁用**避免误锁）；「刷新背景」→ `POST /api/memory/refresh` 回填返回背景；含 `settings-error` 错误条与成功提示。`App.tsx` 标题栏加「设置」入口（`settingsOpen` 控制显隐）；**会话级刷新**用 `useEffect` + **模块级标志 `sessionRefreshed`** 保证**一次页面加载仅调一次** `refreshBackground()`（StrictMode 下 effect 跑两遍仍只发一次；页面刷新重载模块 → 自然重置），失败静默不阻断首屏。`App.css` 补标题栏 flex 布局与「设置」按钮样式。
+  - 实测（前端）：`npm run build`（`tsc -b && vite build`）+ `npm run lint` 全绿。浏览器真实链路（localhost:5173，真实后端）——① **初始加载**与 **F5 重载** 各仅发 **1 次** `POST /api/memory/refresh`（长会话内不重算）；② 打开「设置」可见 `GET /api/memory` 返回的背景并**正确渲染进 `textarea`**；③ 手改背景为测试值并「保存」→ `POST /api/memory` 200、DB 落库且 `background_locked=1`；④ 点击「刷新背景」→ `POST /api/memory/refresh` 返回 **已存手动值**（锁定跳 LLM），`textarea` 内容**未被覆盖**。测试后已将 DB 背景与 `background_locked` 还原为测试前状态。
+  - 越界说明：仅新增前端组件与启动刷新逻辑，**未改后端与 T4.6 既有接线**；设置页按 Spec FR-18 / Plan §8 **只做背景**（概念分数只读、不在设置页暴露）。
 
 - [x] **T4.6 记忆写入接线（标注 + 已理解）**
   - 做：把 T4.1 的规则接到两处——①`POST /api/annotate` 步骤3：`concept`/`kind` 取自请求，概念**分数不变**、**不在库 → `score=10`**、两种情况均置 `pending=1`（**多次标注只置一次**）；②前端「已理解」按钮 → `POST /api/memory/confirm`，返回后进入下一条（接 T3.6）。
