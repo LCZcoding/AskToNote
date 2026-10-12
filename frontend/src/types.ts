@@ -42,6 +42,8 @@ export type AnnotationDepth = 'brief' | 'deep'
 
 /** 候选问题（模式B，`POST /api/optimize/annotation` 返回项）。 */
 export interface CandidateQuestion {
+  /** 该问题所答的片段在请求 `snippets` 中的编号（1-based）；配对一律以它为准（Plan §6.4/§8）。 */
+  snippet_index: number
   text: string
   concept: string
   kind: AnnotationKind
@@ -93,9 +95,10 @@ export interface AnnotateRequest {
   question?: string
 }
 
-/** `POST /api/annotate` 响应（更新后的笔记全文）。 */
+/** `POST /api/annotate` 响应：更新后的笔记全文 + 本次解释侧锚点 id（供滚动定位并高亮）。 */
 export interface AnnotateResponse {
   note_markdown: string
+  anchor_id: string
 }
 
 /** 通用成功响应（`{ ok }`）。 */

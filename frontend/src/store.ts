@@ -77,12 +77,20 @@ interface StoreState {
    * `done` 时用后端 `note_markdown` 覆盖 `noteMarkdown` 并清空本缓冲。
    */
   streamingText: string
+  /**
+   * 最近一次扩写成功的**解释侧锚点 id**（`anno-{n}`，空串 = 无）。
+   * `NoteView` 监听它：笔记刷新后滚动到该解释并短暂高亮（Plan §8）；
+   * 每条标注 id 唯一，故同一值只闪一次、无需清空。
+   */
+  flashAnchorId: string
 }
 
 interface StoreActions {
   // —— 笔记 ——
   /** 打开某主题（启动加载 / 切换主题）。 */
   openNote: (slug: string, markdown: string) => void
+  /** 请求笔记区滚动到某解释锚点并短暂高亮（扩写成功后调用，Plan §8）。 */
+  flashAnchor: (anchorId: string) => void
   /** 流式期间累加当前新 Q/A 块的正文增量（T2.6 打字机）。 */
   appendDelta: (text: string) => void
 
@@ -149,8 +157,10 @@ export const useStore = create<Store>()((set) => ({
   pendingContext: '',
   streamingQuestion: '',
   streamingText: '',
+  flashAnchorId: '',
 
   openNote: (slug, markdown) => set({ noteSlug: slug, noteMarkdown: markdown }),
+  flashAnchor: (anchorId) => set({ flashAnchorId: anchorId }),
   appendDelta: (text) =>
     set((s) => ({ streamingText: s.streamingText + text })),
 

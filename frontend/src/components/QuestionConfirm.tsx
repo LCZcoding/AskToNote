@@ -52,6 +52,7 @@ export default function QuestionConfirm() {
   const failStreaming = useStore((s) => s.failStreaming)
   const setPendingContext = useStore((s) => s.setPendingContext)
   const openNote = useStore((s) => s.openNote)
+  const flashAnchor = useStore((s) => s.flashAnchor)
   const updatePendingQuestion = useStore((s) => s.updatePendingQuestion)
   const removePendingQuestion = useStore((s) => s.removePendingQuestion)
   const prependPendingQuestions = useStore((s) => s.prependPendingQuestions)
@@ -119,7 +120,8 @@ export default function QuestionConfirm() {
 
   /**
    * T3.6 串行扩写单条：`POST /api/annotate`（`anchor` 取该条 `snippet`）→ 成功用返回的
-   * **最新 `note_markdown`** 覆盖（用户读）；失败置 `failed`（**中断**、不推进队列）。
+   * **最新 `note_markdown`** 覆盖，并按 `anchor_id` **滚动定位到解释处、短暂高亮**（Plan §8）；
+   * 失败置 `failed`（**中断**、不推进队列）。
    */
   async function runExpand(q: PendingQuestion) {
     if (q.depth === null) return
@@ -136,6 +138,7 @@ export default function QuestionConfirm() {
         question: q.text,
       })
       openNote(noteSlug, resp.note_markdown)
+      flashAnchor(resp.anchor_id) // 让用户立即看到「解释插在哪」
     } catch (exc) {
       setFailed(true)
       setError(exc instanceof Error ? exc.message : String(exc))
@@ -194,7 +197,7 @@ export default function QuestionConfirm() {
     for (const a of fresh) drillSentRef.current.add(a.id)
 
     void (async () => {
-      // 输出与输入 `snippets` 按下标一一对应（Plan §8）：把划词原文并入候选项。
+      // 每个候选问题回带 `snippet_index`（1-based），按它取原文配对（Plan §6.4/§8）。
       const snippets = fresh.map((a) => a.snippet)
       try {
         const resp = await optimizeAnnotation({
@@ -202,9 +205,9 @@ export default function QuestionConfirm() {
           note_markdown: noteMarkdown,
         })
         prependPendingQuestions(
-          resp.questions.map((q, i) => ({
+          resp.questions.map((q) => ({
             ...q,
-            snippet: snippets[i] ?? q.concept,
+            snippet: snippets[q.snippet_index - 1] ?? q.concept,
           })),
         )
       } catch (exc) {

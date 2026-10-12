@@ -35,7 +35,7 @@ export default function AnnotationList() {
     setLoading(true)
     startOptimize() // phase → optimizing（Plan §8：模式B 拉取中）
     try {
-      // 模式B 输出与输入 `snippets` 按下标一一对应（Plan §8）：
+      // 模式B 每个候选问题回带 `snippet_index`（1-based），**按它取原文**——配对不依赖输出顺序（Plan §6.4/§8）：
       // 把划词原文并入候选项的 `snippet`，供 `/api/annotate` 作 `anchor`。
       const snippets = annotations.map((a) => a.snippet)
       const resp = await optimizeAnnotation({
@@ -43,7 +43,10 @@ export default function AnnotationList() {
         note_markdown: noteMarkdown,
       })
       setPendingQuestions(
-        resp.questions.map((q, i) => ({ ...q, snippet: snippets[i] ?? q.concept })),
+        resp.questions.map((q) => ({
+          ...q,
+          snippet: snippets[q.snippet_index - 1] ?? q.concept,
+        })),
       )
       setAnnotationCard()
     } catch (exc) {

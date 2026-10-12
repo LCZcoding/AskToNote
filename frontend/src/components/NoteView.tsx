@@ -35,6 +35,7 @@ export default function NoteView() {
   const markdown = useStore((s) => s.noteMarkdown)
   const streamingQuestion = useStore((s) => s.streamingQuestion)
   const streamingText = useStore((s) => s.streamingText)
+  const flashAnchorId = useStore((s) => s.flashAnchorId)
   const isStreaming = useIsStreaming()
   const canAnnotate = useCanAnnotate()
   const addAnnotation = useStore((s) => s.addAnnotation)
@@ -47,6 +48,27 @@ export default function NoteView() {
   useEffect(() => {
     if (isStreaming) bottomRef.current?.scrollIntoView({ block: 'end' })
   }, [isStreaming, streamingText])
+
+  // 扩写成功后滚动到解释处并短暂高亮（Plan §8）：`flashAnchorId` 与 `noteMarkdown` 由同一批
+  // 更新一起提交，故 effect 运行时 DOM 已是**刷新后**的笔记，可直接按 id 定位。
+  useEffect(() => {
+    if (flashAnchorId === '') return
+    const el = document.getElementById(flashAnchorId)
+    if (!el) return
+    el.scrollIntoView({ block: 'center' })
+    // 锚点是空的行内 `<a>`，高亮它所在的段落/列表项/单元格，让用户一眼看到「解释在哪」。
+    const target = el.closest('p, li, td, th') ?? el.parentElement
+    if (!target) return
+    target.classList.add('anno-flash')
+    const timer = window.setTimeout(
+      () => target.classList.remove('anno-flash'),
+      1800,
+    )
+    return () => {
+      window.clearTimeout(timer)
+      target.classList.remove('anno-flash')
+    }
+  }, [flashAnchorId])
 
   // 气泡为 `position: fixed`，无法跟随选区位移：页面一滚动、或点击气泡以外任意处即关闭（Plan §8）。
   useEffect(() => {

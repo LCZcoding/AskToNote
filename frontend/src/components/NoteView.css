@@ -83,12 +83,34 @@
   background: var(--accent-bg);
 }
 
+/* —— 标注回跳 & 扩写后定位高亮 —— */
+
 /* 标注回跳链接 [↩] 去下划线；锚点定位时留出顶部标题栏高度。 */
 .note-view a[href^='#anno-'] {
   text-decoration: none;
 }
 .note-view [id^='anno-'] {
   scroll-margin-top: 72px;
+}
+
+/* 扩写成功后短暂高亮解释所在段落（Plan §8）：让用户一眼看到「解释在哪」。 */
+.note-view .anno-flash {
+  border-radius: 4px;
+  animation: anno-flash 1.8s ease-out;
+}
+@keyframes anno-flash {
+  0% {
+    background-color: var(--accent-bg);
+    box-shadow: 0 0 0 3px var(--accent-bg);
+  }
+  70% {
+    background-color: var(--accent-bg);
+    box-shadow: 0 0 0 3px var(--accent-bg);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
 }
 
 /* —— 流式打字机（T2.6）—— */
