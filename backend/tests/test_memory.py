@@ -336,3 +336,29 @@ def test_set_background_if_unlocked_skips_when_locked(db_path) -> None:
     memory.set_background("手改背景")
     assert memory.set_background_if_unlocked("推断背景") is False
     assert memory.get_background() == "手改背景"
+
+
+# ---------------------------------------------------------------------------
+# T4.4 记忆影响下次回答：概念按分数切两档（Prompt 组装的两类输入，Plan §6）
+# ---------------------------------------------------------------------------
+
+
+def test_concepts_by_mastery_splits_at_fifty(db_path) -> None:
+    """`score≥50` → 【已掌握概念】；`<50` → 【尚不熟悉的概念】；等级随分数推导。"""
+    with memory.write_connection() as conn:
+        for name, score in (("容器", 50), ("JVM", 80), ("镜像", 49), ("K8s", 10)):
+            conn.execute(
+                "INSERT INTO concepts (name, score, updated_at) VALUES (?, ?, 't')",
+                (name, score),
+            )
+    mastered, learning = memory.concepts_by_mastery()
+    assert {c["name"] for c in mastered} == {"容器", "JVM"}
+    assert {c["name"] for c in learning} == {"镜像", "K8s"}
+    # 等级由分数推导后一并带入（供 Prompt 渲染 `名称(等级)`）
+    assert {c["name"]: c["level"] for c in mastered} == {"容器": "familiar", "JVM": "mastered"}
+    assert {c["name"]: c["level"] for c in learning} == {"镜像": "blurry", "K8s": "unfamiliar"}
+
+
+def test_concepts_by_mastery_empty(db_path) -> None:
+    """表为空 → 两档均为空列表（首次启动传空列表，Spec FR-18）。"""
+    assert memory.concepts_by_mastery() == ([], [])

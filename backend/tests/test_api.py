@@ -746,3 +746,39 @@ def test_refresh_parse_failure_returns_502(env) -> None:
     assert resp.status_code == 502
     assert "背景推断失败" in resp.json()["detail"]
     assert memory.get_background() == ""
+
+
+# ---------------------------------------------------------------------------
+# T4.4 记忆影响下次回答：Prompt 组装确实读 concepts 表（两类分别进入 Prompt）
+#   （/api/answer 的两类断言见上方 test_answer_prompt_uses_memory_two_categories…）
+# ---------------------------------------------------------------------------
+
+
+def test_optimize_initial_prompt_uses_memory_two_categories(env) -> None:
+    """T4.4：/api/optimize/initial 组装读 concepts 表，已掌握/尚不熟悉两类分别进入 Prompt。"""
+    client, holder = env
+    _seed_concept("容器", 60, 0)
+    _seed_concept("镜像", 10, 1)
+    holder["llm"] = FakeLLM(json_responses=[json.dumps({"optimized_question": "容器是什么"})])
+    resp = client.post("/api/optimize/initial", json={"question": "容器是啥"})
+    assert resp.status_code == 200
+    user = holder["llm"].json_calls[0]["user"]
+    assert "容器(familiar)" in user
+    assert "镜像(unfamiliar)" in user
+
+
+def test_annotate_prompt_uses_memory_two_categories(env) -> None:
+    """T4.4：/api/annotate 组装读 concepts 表，已掌握/尚不熟悉两类分别进入 Prompt。"""
+    client, holder = env
+    _seed_note_with_body("docker", "Docker 入门", "什么是容器", "容器是一种轻量级虚拟化技术。")
+    _seed_concept("容器", 60, 0)
+    _seed_concept("镜像", 10, 1)
+    holder["llm"] = FakeLLM(json_responses=[json.dumps({"insert": {"insert_text": "（简释）"}})])
+    resp = client.post(
+        "/api/annotate",
+        json={"slug": "docker", "anchor": "容器", "concept": "容器", "kind": "concept", "depth": "brief"},
+    )
+    assert resp.status_code == 200
+    user = holder["llm"].json_calls[0]["user"]
+    assert "容器(familiar)" in user
+    assert "镜像(unfamiliar)" in user

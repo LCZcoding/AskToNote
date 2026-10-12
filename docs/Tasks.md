@@ -298,10 +298,12 @@
   - 实现：`prompts.py` 新增 `BACKGROUND_TEMPLATE` + `render_background_prompt`（§6.5 逐字落地，三类占位符复用 `format_concepts`/`format_topics`）；新建 `app/agents/background.py`（`infer_background` 经 `chat_json` 返回 `BackgroundResult`，Prompt 已含 `{concepts_mastered}/{concepts_learning}` 与 `{topics}`）；`memory.py` 新增 `is_background_locked()`、`set_background()`（写并锁）、`set_background_if_unlocked()`（带 `background_locked=0` 守卫的推断写回）；`api.py` 新增 `POST /api/memory`（`background=None` 不写不锁，传字符串含空串则写入并锁）与 `POST /api/memory/refresh`（**锁定→跳 LLM 返回已存背景；概念与主题均空→跳 LLM 返回空串**，否则推断且仅未锁时写回，解析失败 502）。经用户拍板：新建独立 `background.py` 模块并把 Plan §2 目录补齐；refresh 在锁定/空数据时跳过 LLM。
   - 实测：`uv run pytest -q` → **164 passed**（基线 148 + 新增 16）：`test_background.py` 4 例（三类占位符渲染、空值「（暂无）」、解析 `background`/空串、`json_mode` + 系统提示词）；`test_memory.py` 4 例（默认未锁、手改写锁、未锁写回且保持未锁、已锁跳过不覆盖）；`test_api.py` 8 例（带/不带/空串 background、空数据跳 LLM、未锁推断写回且两类概念入 prompt、仅主题也调 LLM、锁定跳 LLM 保留手改背景、解析失败 502 且背景不变）。未越界：未触碰 T4.5（设置页接线）与 T4.6（`/api/annotate` 记忆写入接线）。
 
-- [ ] **T4.4 记忆影响下次回答**
+- [x] **T4.4 记忆影响下次回答**
   - 做：复核 `answer_note.py`/`question_optimizer.py` 的 Prompt 组装**确实读 `concepts` 表**（M1 时该表为空 → 传空列表），修正任何硬编码/遗漏。
   - 产出：Prompt 组装收口（无新接口）。
   - 验证：造两条记忆（一条 ≥50、一条 <50）后，**直接调用 Prompt 组装函数**可见两类分别进入 Prompt。
+  - 审计：逐条核对四条读路径——`/api/answer`、`/api/optimize/initial`（优化版/命名版）、`/api/annotate` 均经 `memory.get_background()` + `memory.concepts_by_mastery()` 读 `concepts` 表并传入 Prompt；`/api/optimize/annotation`（模式B）按 Plan §6.4/§7 仅取 `list_concept_names()`（**仅名称**）。**无硬编码、无遗漏，生产代码零改动**。
+  - 实测：`uv run pytest -q` → **168 passed**（基线 164 + 新增 4）：`test_memory.py` 2 例（`concepts_by_mastery` 在 50 分界正确分档且带等级、空表返回两个空列表）；`test_api.py` 2 例（`/api/optimize/initial`、`/api/annotate` 两类分别进入 Prompt）。`/api/answer` 的两类断言由既有用例覆盖。无新接口，未越界。
 
 - [ ] **T4.5 设置页 + 会话级刷新**
   - 做：`SettingsPanel.tsx` 显示当前背景、可编辑覆盖、提供"刷新背景"按钮；**页面加载/刷新时**调一次 `/api/memory/refresh`（长会话中途不重算）。
