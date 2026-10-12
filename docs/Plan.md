@@ -237,6 +237,16 @@ MODEL=deepseek-flash
 
 **流式说明**：只有「模式①作答」走 `chat_stream`，输出的**纯 Markdown 直接作为 `delta` 事件推给前端**，不做任何结构化包裹、无分隔符解析。其余调用（优化、扩写、背景推断）走 `chat(json_mode=True)` 返回 JSON（输出约束与校验见 §7「JSON 输出约束」）。
 
+**上下文缓存观测（T3.15）**：DeepSeek 的上下文缓存是**前缀缓存**——从消息第 0 个 token 起逐 token 比对，首个不同处之后**全部**失效，故命中率只取决于「最长的稳定前缀」。当前各模板把最长的【当前笔记】排在易变块之后、【要求】压在末尾，前缀易被切断（边界见 §12 #19）。为给后续可能的重排建立基线，`DeepSeekClient` 的**两个方法都在调用后打印一行 usage**：
+
+```
+[llm-usage] <system 前 16 字> hit=1024 miss=3072 rate=25.0% prompt=4096
+```
+
+- `chat`：直接读 `resp.usage`；`chat_stream`：请求带 `stream_options={"include_usage": True}`，usage 在**最后一个 chunk** 回传（该帧 `choices` 为空，须**先判空**再取 delta）。
+- `hit`/`miss` 取 `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`（DeepSeek 扩展字段，`getattr` + `model_extra` 兜底，缺失记 0）；`rate = hit/(hit+miss)`，两者皆 0 时记 `n/a`。
+- **只打印，不改任何提示词与调用语义**；模式标签取 system 开头 16 字（各模式角色描述不同，足以区分调用方，无需改动 `LLMClient` 契约）。
+
 ## 6. Prompt 模板（正文）
 
 > **占位符渲染约定**：`{topics}` → `"slug: title"`（如 `docker: Docker 入门`；**模式①作答 / 背景推断 / 模式A「命名版」**使用——模式A**优化版不含** `{topics}`/`{slug}`）；`{concepts_mastered}` → `score ≥ 50` 的概念，`名称(等级)`（如 `容器(familiar)`）；`{concepts_learning}` → `score < 50` 的概念，`名称(等级)`（如 `镜像(unfamiliar)`）。**概念记忆一律按 `score` 分这两类喂给 AI**——`< 50` 的多为用户标注过、尚未学会的词，**不得当作已掌握**。`{concepts_existing}`（**仅模式B 使用**）→ **全部概念名清单、不含分数/等级**（如 `容器, 镜像, 低耦合`），供模式B **优先复用同名概念**；`{snippets}`（**仅模式B 使用**）→ **编号列表**（`1. 片段`，每片段一行，便于与"一标注一问题"按序对应）；`{question}`（**模式①/模式A/模式②** 均用）为空时渲染为「（未提供，仅凭片段与上下文）」（模式①/模式A 的入参 `question` 为必填，实际不空）；`{context}`（**模式①/模式A** 用）→ **引用片段**（大块追问携带的选中原文，Spec FR-4b），普通提问为空、按下方空值约定渲染为「（暂无）」。**空值约定**：除 `{question}`（见上）外，其余占位符为空时**统一渲染为「（暂无）」**——典型：新主题首问的 `{note_markdown}`、首个会话的 `{topics}`/`{background}`/`{concepts_mastered}`/`{concepts_learning}`、模式B 的 `{concepts_existing}`。
@@ -466,6 +476,7 @@ POST /api/memory/refresh（**会话级一次**，前端启动时调）:
 | `test_notes.py` | 标注插入定位（**优先词后、兜底行末**）：源码命中 anchor → 插词后；跨行内标记 → 逐行脱标记命中 → 插**该行行末**（多列表项/表格行时紧邻原词所在行，不落到整段末尾）；重复取首次；未命中报错；**名词高亮升级**（Spec FR-15）：行内代码 `` `原词` ``/裸文本/同主题 `[[原词]]` → 就地重建 `==原词==`（已是 `==原词==` 不重复包；落在 `[...](...)`/`**...**`/跨主题 `[[slug#概念]]` 内 → **不重建、降级单向**）；`deep` 把 `####` 新章节**追加到文件末尾**（原地只留括号简释）、末尾带 `[↩]`；**跳转标记**（Spec FR-9c）：`brief` **不做跳转**（只 `==原词==` + 解释侧锚点 + 简释，无链接/来源锚点/「↩」）；`deep` 源码命中 → 原词包 `[==原词==](#anno-{n})` + 来源锚点 `<a id="anno-{n}-src">`、文末章节末尾带 `[↩]`；兜底命中 → **降级单向**（只解释侧锚点、插行末、不重建高亮）；`apply_annotation` 支持传入固定 `anno_id`、`insert_annotation` 返回 `(全文, anchor_id)` |
 | `test_memory.py` | 规则：被标注新概念=10（已在库被标注**不改分**）置 pending；「已理解」→ pending=0、`min(100, score+10)`；**重复「已理解」不加分（幂等）**；`score≥80` 即 `mastered` |
 | `test_parse.py` | JSON 输出约束与容错：`json_mode` 请求带 `response_format`、容忍 ```` ```json ```` 围栏包裹与多余文字、**取首个 `{` 到配对 `}`（字符串感知，JSON 字符串内嵌的代码围栏/花括号不截断）**、校验不过回喂重试 1 次、字段缺失给默认值 |
+| `test_llm.py` | LLM 抽象层：`api_key`/`base_url` 透传、`model` 保存、`chat`/`chat_stream` 的 `messages`/`stream`/`response_format` 参数、流式跳过空/`None` 增量；**usage 埋点（T3.15）**：`stream_options={"include_usage": True}`、**只带 usage 的末帧（`choices=[]`）不影响增量产出**、`prompt_cache_hit_tokens`/`prompt_cache_miss_tokens` 取值（含 `model_extra` 兜底）与命中率打印、字段缺失记 0 与 `rate=n/a`。全部用假客户端，**不发真实请求** |
 | `test_question_optimizer.py` / `test_api.py` | 模式A：**优化版**不含 `{topics}`/不解析 slug/title、**命名版**（`new_topic=true`）喂【现有主题】且 slug/title 为空 → 回喂重试；`/api/optimize/initial` 响应按 `new_topic` 分支（false 只回 `optimized_question`）、命名版 slug **清洗 `[a-z0-9-]` + 去重**（重名加数字后缀） |
 
 **端到端**：demo 阶段以手动验证为主（curl + 浏览器）。
@@ -528,3 +539,4 @@ POST /api/memory/refresh（**会话级一次**，前端启动时调）:
 | 16 | **撤销 / 删除标注** | v1 **不做**（失败可重试该条；「跳过」只跳过确认与队列推进、**不回滚**已写入的扩写内容），留 v2 |
 | 17 | **清洗可能误伤代码围栏内的 `#`** | v1 **不特殊处理**（不跳过 ``` 围栏），接受极端排版可能出错 |
 | 18 | **标注双向跳转 / 高亮升级的边界**：同一原词被多次标注（链接嵌套）、原词本身已在行内标记内 | v1：源码精确命中且原词**可安全重建**（行内代码/裸文本/同主题 `[[原词]]`）→ **就地升级为 `==原词==`**（Spec FR-15）；落在 `[...](...)`/`**...**`/跨主题 `[[slug#概念]]` 内 → **降级为单向**（只解释侧锚点、不重建高亮）；同词多次标注可能产生嵌套或指向首个链接，接受，v2 再优化 |
+| 19 | **上下文缓存命中率未优化**：各模板把最长的【当前笔记】排在易变块（概念列表/其他主题）之后、【要求】压在末尾 → 前缀常被切断；且笔记是**追加式写入**，可命中的其实只是"笔记的未改动头部" | v1 **只做观测**（LLM 层打印 usage，T3.15，不改提示词）；**提示词块顺序重排**留待基线数据出来后再单独评估——重排会改变模型看到信息的顺序，须用真实对话回归验证回答质量 |

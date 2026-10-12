@@ -250,3 +250,4 @@
 | 标注时机 | 流式结束、MD 渲染完成后启用 | 避免流式文字位移导致标注错位 |
 | 前端选型 | Vite + React + TS + zustand | 类型安全 + 轻量状态管理 |
 | 笔记存储 | `data/notes/{slug}.md` | 扁平、易跨主题引用 |
+| 上下文缓存观测 | 仅在 LLM 抽象层**打印** usage（`prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` 与命中率）；**不重排提示词块顺序** | DeepSeek 缓存是**前缀缓存**（第 0 个 token 起逐 token 相同才算命中，首个不同处之后全部失效），命中率由"最长的稳定前缀"决定；先量出真实基线，避免无数据就动 Prompt 而影响回答质量 |

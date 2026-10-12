@@ -2,6 +2,9 @@
 
 全部用例通过 monkeypatch 把 `app.llm.OpenAI` 换成假客户端，**不发起真实网络请求**
 （不产生计费）。真实调用的验证见 Tasks.md T1.2 的文档验证步骤（Plan §5）。
+
+T3.15 补充：usage / 上下文缓存命中埋点（Plan §5「上下文缓存观测」）——假 usage 断言
+打印内容与 `stream_options`，仍不发真实请求。
 """
 from collections.abc import Iterator
 from types import SimpleNamespace
@@ -11,14 +14,32 @@ import pytest
 import app.llm as llm
 
 
-def _chunk(text):
+def _chunk(text, usage=None):
     """构造一个流式 chunk：choices[0].delta.content = text。"""
-    return SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=text))])
+    return SimpleNamespace(
+        choices=[SimpleNamespace(delta=SimpleNamespace(content=text))], usage=usage
+    )
 
 
-def _completion(content):
+def _usage_chunk(usage):
+    """构造只带 usage 的末帧：choices 为空（Plan §5「上下文缓存观测」）。"""
+    return SimpleNamespace(choices=[], usage=usage)
+
+
+def _completion(content, usage=None):
     """构造一个非流式响应：choices[0].message.content = content。"""
-    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content))], usage=usage
+    )
+
+
+def _usage(hit, miss, prompt):
+    """构造 DeepSeek 风格的 usage（含缓存扩展字段）。"""
+    return SimpleNamespace(
+        prompt_cache_hit_tokens=hit,
+        prompt_cache_miss_tokens=miss,
+        prompt_tokens=prompt,
+    )
 
 
 @pytest.fixture
@@ -37,7 +58,7 @@ def fake_openai(monkeypatch):
             state["calls"].append(kwargs)
             if kwargs.get("stream"):
                 return iter(state["chunks"])
-            return _completion(state["content"])
+            return _completion(state["content"], state.get("usage"))
 
     monkeypatch.setattr(llm, "OpenAI", _FakeOpenAI)
     return state
@@ -141,3 +162,87 @@ def test_chat_stream_sends_stream_true(fake_openai) -> None:
         {"role": "system", "content": "s"},
         {"role": "user", "content": "u"},
     ]
+
+
+# --- T3.15 埋点：usage / 上下文缓存命中（Plan §5「上下文缓存观测」） --------------
+
+
+def test_prompt_tag_is_single_line_and_bounded() -> None:
+    """模式标签取 system 前 16 字、压缩空白（多行 system 不能让日志断行）。"""
+    tag = llm._prompt_tag("你是笔记扩写助手。\n\n用户在笔记中标注了陌生片段")
+    assert "\n" not in tag
+    assert len(tag) <= llm._TAG_LEN
+    assert tag.startswith("你是笔记扩写助手。")
+
+
+def test_usage_field_reads_attribute() -> None:
+    """命中字段在属性上时应直接读出。"""
+    usage = SimpleNamespace(prompt_cache_hit_tokens=100)
+    assert llm._usage_field(usage, "prompt_cache_hit_tokens") == 100
+
+
+def test_usage_field_falls_back_to_model_extra() -> None:
+    """DeepSeek 扩展字段可能不落在属性上，而在 pydantic 的 `model_extra` 里。"""
+    usage = SimpleNamespace(model_extra={"prompt_cache_hit_tokens": 7})
+    assert llm._usage_field(usage, "prompt_cache_hit_tokens") == 7
+
+
+def test_usage_field_missing_is_zero() -> None:
+    """字段不存在时记 0，不得抛异常。"""
+    assert llm._usage_field(SimpleNamespace(), "prompt_cache_miss_tokens") == 0
+
+
+def test_chat_logs_cache_hit_rate(fake_openai, capsys) -> None:
+    """chat 调用后应打印一行命中率。"""
+    fake_openai["usage"] = _usage(hit=1024, miss=3072, prompt=4096)
+    client = llm.DeepSeekClient("k", "m", "u")
+
+    client.chat("你是笔记扩写助手。", "u")
+
+    out = capsys.readouterr().out
+    assert "你是笔记扩写助手。" in out
+    assert "hit=1024" in out
+    assert "miss=3072" in out
+    assert "rate=25.0%" in out
+    assert "prompt=4096" in out
+
+
+def test_chat_logs_na_rate_without_cache_fields(fake_openai, capsys) -> None:
+    """响应不带缓存字段时命中率记 `n/a`，不得除零崩掉。"""
+    fake_openai["usage"] = SimpleNamespace(prompt_tokens=10)
+    client = llm.DeepSeekClient("k", "m", "u")
+
+    client.chat("你是提问助手。", "u")
+
+    out = capsys.readouterr().out
+    assert "hit=0 miss=0" in out
+    assert "rate=n/a" in out
+
+
+def test_chat_stream_requests_usage_and_logs_final_chunk(fake_openai, capsys) -> None:
+    """流式应带 `stream_options={"include_usage": True}`，并在只带 usage 的末帧打印。"""
+    fake_openai["chunks"] = [
+        _chunk("Hel"),
+        _chunk("lo"),
+        _usage_chunk(_usage(hit=384, miss=195, prompt=579)),
+    ]
+    client = llm.DeepSeekClient("k", "m", "u")
+
+    out = list(client.chat_stream("你是测试助手。", "u"))
+
+    assert out == ["Hel", "lo"]  # usage 末帧（choices 为空）不影响增量产出
+    assert fake_openai["calls"][0]["stream_options"] == {"include_usage": True}
+    log = capsys.readouterr().out
+    assert "hit=384" in log
+    assert "miss=195" in log
+    assert "rate=66.3%" in log
+
+
+def test_chat_stream_without_usage_logs_nothing(fake_openai, capsys) -> None:
+    """末帧没有 usage（usage=None）时不应打印任何日志。"""
+    fake_openai["chunks"] = [_chunk("a")]
+    client = llm.DeepSeekClient("k", "m", "u")
+
+    list(client.chat_stream("s", "u"))
+
+    assert "[llm-usage]" not in capsys.readouterr().out

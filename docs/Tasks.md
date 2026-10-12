@@ -263,6 +263,14 @@
 
   - 数据修复（用户确认后执行）：对已产生的 `backend/data/notes/langchain-intro.md` 手工补齐同一套标记——标题行 9 改为 `### 9. <a id="anno-6d7a49b8-src"></a>[==Output Parser==](#anno-6d7a49b8)：结构化输出`，并在已有文末深释章节末尾追加 `[↩](#anno-6d7a49b8-src)`（不重新调 LLM）。
 
+- [x] **T3.15 LLM 调用埋点：打印上下文缓存命中（仅观测，不改提示词）**
+  - 背景（用户反馈）：「现在缓存命中率太低了，可以优化吗？」。DeepSeek 的上下文缓存是**前缀缓存**——从消息第 0 个 token 起逐 token 比对，首个不同处之后**全部**失效，命中率只取决于「最长的稳定前缀」。而 `backend/` 全库无任何 usage/缓存记录（grep `cache|usage|prompt_tokens` 零命中），**改前改后无法对比** → 先量基线。用户确认范围：**只埋点**，不重排提示词、不动 system（避免无数据就改 Prompt 影响回答质量）。
+  - 前置（**先改文档再改码**）：Spec §10 新增「上下文缓存观测」决策行；Plan §5 补「上下文缓存观测」约定（日志格式、流式 `stream_options`、取值兜底），§12 新增 #19「提示词块顺序未优化」边界。
+  - 修法（`backend/app/llm.py`）：新增 `_prompt_tag()`（取 system 前 16 字做模式标签，压缩空白）、`_usage_field()`（`getattr` + `model_extra` 兜底读 DeepSeek 扩展字段，缺失记 0）、`_log_usage()`（打印 `hit/miss/rate/prompt`，两值皆 0 时 `rate=n/a`）；`chat()` 读 `resp.usage`；`chat_stream()` 加 `stream_options={"include_usage": True}`，循环内**先判空 `chunk.choices`**（带 usage 的末帧 choices 为空）再取 delta。**不改任何提示词、不改调用语义、不改 `LLMClient` 契约。**
+  - 产出：`docs/Spec.md`、`docs/Plan.md`、`docs/Tasks.md`、`backend/app/llm.py`、`backend/tests/test_llm.py`。
+  - 验证：`uv run pytest -q` 全绿。`tests/test_llm.py` 既有假客户端设施扩展（`_chunk`/`_completion` 加 `usage`、新增 `_usage_chunk`/`_usage` 辅助），**新增 8 个用例**（仍全用假客户端、不发真实请求）：标签单行且有界、`_usage_field` 直读/`model_extra` 兜底/缺失记 0、`chat` 打印 `rate=25.0%`、无缓存字段时 `rate=n/a` 不除零、`chat_stream` 带 `stream_options={"include_usage": True}` 且只带 usage 的末帧（`choices=[]`）不影响增量产出并打印 `rate=66.3%`、末帧无 usage 时不打印。
+  - 实测：`uv run pytest -q` → **132 passed**（基线 124 + 新增 8）。另用临时脚本做**真实调用**冒烟（用后已删）：① 短线（39 token）`chat_stream` 正常出流（1 个 delta `收到`）并打印 `hit=0 miss=39 rate=0.0% prompt=39`——证明 `include_usage` 不影响流式、扩展字段可读；② 同一长前缀（579 token）连发两次 `chat`，第一次 `hit=0 miss=579 rate=0.0%`、第二次 `hit=384 miss=195 rate=66.3%`——**证明埋点确实能观测到缓存命中**（此前全库无任何观测手段）。
+
 ---
 
 ## M4 记忆
