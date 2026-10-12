@@ -4,22 +4,19 @@
 1. API 层——调用 `llm.chat(json_mode=True)`，带 `response_format={"type":"json_object"}`
    （实现见 `app/llm.py`）；
 2. 校验层——按 Pydantic 模型校验字段与类型（模型 schema 取自 Plan §6）；
-3. 兜底层——解析容错（剥离 ```json 围栏、容忍首尾多余文字）+ 校验不过**回喂错误重试 1 次**；
+3. 兜底层——解析容错（`extract_json` 取首个 `{` 到配对 `}`，字符串感知，容忍围栏与多余文字）
+   + 校验不过**回喂错误重试 1 次**；
    非关键字段缺失按默认值兜底；两次仍失败抛 `JsonParseError`（由调用方转成前端提示）。
 
 模式①作答是纯 Markdown 流式，**不使用**本模块。
 """
 import json
-import re
 from collections.abc import Callable
 from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
 from app.llm import LLMClient
-
-# ```json ... ``` 或 ``` ... ``` 围栏（可跨行）。
-_FENCED_RE = re.compile(r"```(?:json)?[ \t]*\n?(.*?)\n?```", re.S)
 
 
 class JsonParseError(Exception):
@@ -90,23 +87,43 @@ class BackgroundResult(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _strip_code_fence(text: str) -> str:
-    """若含 ``` 围栏则取第一段围栏内内容，否则原样去空白。"""
-    m = _FENCED_RE.search(text)
-    return m.group(1).strip() if m else text.strip()
-
-
 def extract_json(text: str) -> str:
-    """从模型输出中提取 JSON 文本：剥离 ```json 围栏 + 容忍首尾多余文字。
+    """从模型输出中提取 JSON 文本：取**首个 `{` 到与它配对的 `}`**。
 
-    取「首个 `{` 到最后一个 `}`」的片段；找不到对象时抛 `ValueError`。
+    扫描时**跟踪字符串状态**（跳过字符串内部的花括号、识别 `\"` 转义），因此首尾多余文字与
+    ```` ```json ```` 围栏都能容忍，**且 JSON 字符串内嵌的代码围栏不会被误当成分隔符**——
+    模式② 的 `new_section.content` 是 Markdown、常含 ```` ```python ```` 代码围栏，若按围栏裁剪
+    会把 JSON 截断在围栏处（Plan §7「JSON 输出约束」兜底层 / T3.13）。
+
+    找不到 `{` 或括号不配对时抛 `ValueError`。
     """
-    body = _strip_code_fence(text)
-    start = body.find("{")
-    end = body.rfind("}")
-    if start == -1 or end < start:
+    start = text.find("{")
+    if start == -1:
         raise ValueError(f"响应中未找到 JSON 对象：{text!r}")
-    return body[start : end + 1]
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+
+    raise ValueError(f"响应中 JSON 对象不完整：{text!r}")
 
 
 TModel = TypeVar("TModel", bound=BaseModel)

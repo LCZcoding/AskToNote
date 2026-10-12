@@ -1,8 +1,8 @@
 """T1.8 JSON 输出约束与解析容错单测（Plan §7「JSON 输出约束」/ §9 `test_parse`）。
 
-覆盖：`json_mode` 调用、剥离 ```json 围栏、容忍多余文字、Pydantic 校验、
-非关键字段缺失默认值兜底、校验不过**回喂错误重试 1 次**、两次仍失败抛 `JsonParseError`。
-全部用 FakeLLM，不发起真实调用。
+覆盖：`json_mode` 调用、容忍 ```` ```json ```` 围栏与多余文字、**字符串感知提取**（JSON 字符串
+内嵌的代码围栏/花括号不截断）、Pydantic 校验、非关键字段缺失默认值兜底、校验不过**回喂错误
+重试 1 次**、两次仍失败抛 `JsonParseError`。全部用 FakeLLM，不发起真实调用。
 """
 import pytest
 from pydantic import ValidationError
@@ -44,13 +44,13 @@ def test_extract_json_plain() -> None:
     assert parse.extract_json('{"a": 1}') == '{"a": 1}'
 
 
-def test_extract_json_strips_json_fence() -> None:
-    """剥离 ```json 围栏。"""
+def test_extract_json_tolerates_json_fence() -> None:
+    """容忍整体 ```` ```json ```` 围栏包裹。"""
     assert parse.extract_json('```json\n{"a": 1}\n```') == '{"a": 1}'
 
 
-def test_extract_json_strips_bare_fence() -> None:
-    """剥离无语言标注的 ``` 围栏。"""
+def test_extract_json_tolerates_bare_fence() -> None:
+    """容忍整体无语言标注的 ```` ``` ```` 围栏包裹。"""
     assert parse.extract_json("```\n{\"a\": 1}\n```") == '{"a": 1}'
 
 
@@ -59,10 +59,45 @@ def test_extract_json_tolerates_surrounding_text() -> None:
     assert parse.extract_json('好的，结果如下：\n{"a": 1}\n以上。') == '{"a": 1}'
 
 
+def test_extract_json_keeps_fences_inside_string_values() -> None:
+    """JSON 字符串值内嵌 Markdown 代码围栏 → **不得截断**（T3.13 根因回归）。
+
+    模式② 的 `new_section.content` 是 Markdown、常含 ```` ```python ```` 代码围栏；
+    且围栏里的代码还含 `{`/`}`——字符串感知扫描必须把整段忽略掉。
+    """
+    text = (
+        '{"insert": {"insert_text": "（x）"}, "new_section": {"title": "深入", '
+        '"content": "### 它是什么\\n\\n```python\\nchain = prompt | llm | parser\\n'
+        'prompt.invoke({\\"q\\": 1})\\n```\\n\\n结尾。"}}'
+    )
+    extracted = parse.extract_json(text)
+    assert extracted == text  # 完整对象，未被首个 ``` 截断
+    out = parse.parse_model(text, AnnotateResult)
+    assert out.new_section is not None
+    assert "```python" in out.new_section.content
+    assert out.new_section.content.endswith("结尾。")
+
+
+def test_extract_json_handles_braces_and_escaped_quotes_in_strings() -> None:
+    """字符串内的花括号与 `\\"` 转义不干扰配对（不会提前把对象判为结束）。"""
+    text = '{"background": "值里有 } 和 { 还有 \\" 引号", "b": 2}'
+    assert parse.extract_json(text) == text
+    assert (
+        parse.parse_model(text, BackgroundResult).background
+        == '值里有 } 和 { 还有 " 引号'
+    )
+
+
 def test_extract_json_raises_when_no_object() -> None:
     """找不到 JSON 对象时抛 ValueError。"""
     with pytest.raises(ValueError):
         parse.extract_json("没有任何大括号")
+
+
+def test_extract_json_raises_when_unbalanced() -> None:
+    """括号不配对（输出被截断）时抛 ValueError。"""
+    with pytest.raises(ValueError):
+        parse.extract_json('{"a": 1')
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +145,20 @@ def test_parse_annotate_deep_has_new_section() -> None:
     assert out.new_section is not None
     assert out.new_section.title == "镜像"
     assert out.new_section.content == "只读模板"
+
+
+def test_chat_json_parses_annotate_with_code_fence_in_content() -> None:
+    """回归（T3.13）：模式② 的 `new_section.content` 含代码围栏时，`chat_json` 仍解析成功、不触发重试。"""
+    raw = (
+        '{"insert": {"insert_text": "（Output Parser 是转换器）"}, "new_section": '
+        '{"title": "深入理解 Output Parser", "content": "### 它是什么\\n\\n```python\\n'
+        'chain = prompt | llm | parser\\n```\\n\\n结尾。"}}'
+    )
+    fake = FakeLLM([raw])
+    out = parse.chat_json(fake, "SYS", "USER", AnnotateResult)
+    assert out.new_section is not None
+    assert "```python" in out.new_section.content
+    assert len(fake.calls) == 1  # 一次成功，没有走回喂重试
 
 
 def test_optional_fields_fall_back_to_defaults() -> None:
