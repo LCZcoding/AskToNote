@@ -18,6 +18,16 @@ NOTES_DIR = settings.notes_dir
 _file_lock = threading.Lock()
 
 
+def sanitize_slug(raw: str) -> str:
+    """把（AI 生成的）主题 slug 清洗为合法形式：`[a-z0-9-]`（Plan §4.0）。
+
+    规则：转小写、非 `[a-z0-9]` 连续字符压成一个 `-`、去掉首尾 `-`。
+    清洗后为空则回退为 `"topic"`（调用方还需再做去重，见 Plan §7）。
+    """
+    cleaned = re.sub(r"[^a-z0-9]+", "-", raw.strip().lower()).strip("-")
+    return cleaned or "topic"
+
+
 def note_path(slug: str) -> Path:
     """返回某主题笔记的磁盘路径。"""
     return NOTES_DIR / f"{slug}.md"

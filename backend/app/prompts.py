@@ -174,23 +174,36 @@ def render_annotate_prompt(
     )
 
 
-# --- Plan §6.3 问题优化智能体 — 模式A（初始问题 + 命名主题） --------------------
+# --- Plan §6.3 问题优化智能体 — 模式A（优化问题；显式新建时命名主题） -----------
+# 模式A 有**两种** prompt，**永不判断"新建 vs 并入"**（主题归属由用户决定）。
 
-OPTIMIZE_INITIAL_TEMPLATE = """你是提问优化与主题命名助手。
+# 优化版（默认，`new_topic=False`）：只优化问题，不喂 topics、不产出 slug/title。
+OPTIMIZE_INITIAL_TEMPLATE = """你是提问优化助手。
 
-【当前主题】{slug}（当前主题 slug；为空表示新会话/新主题）
-【现有主题】{topics}   // 形如 "docker: Docker 入门"
 【用户背景】{background}
 【已掌握概念】{concepts_mastered}   // score≥50，如 "容器(familiar)"
 【尚不熟悉的概念】{concepts_learning}   // score<50（用户标注过、尚未学会）
-【引用片段】{context}   // 用户选中追问的一大块原文，可空
 【用户问题】{question}
+【引用片段】{context}   // 用户选中追问的一大块原文，可空
+
+【任务】把用户的问题优化得更清晰、更聚焦。
+【输出】只输出 JSON：{"optimized_question": "..."}
+"""
+
+# 命名版（`new_topic=True`）：优化问题 + 命名新主题（喂【现有主题】仅供 slug 避免重名）。
+OPTIMIZE_INITIAL_NEW_TOPIC_TEMPLATE = """你是提问优化与主题命名助手。
+
+【现有主题】{topics}   // 形如 "docker: Docker 入门"，仅供 slug 避免重名
+【用户背景】{background}
+【已掌握概念】{concepts_mastered}   // score≥50，如 "容器(familiar)"
+【尚不熟悉的概念】{concepts_learning}   // score<50（用户标注过、尚未学会）
+【用户问题】{question}
+【引用片段】{context}
 
 【任务】
 1. 把用户的问题优化得更清晰、更聚焦。
-2. 判断该问题是否属于一个**新主题**（与当前主题核心概念链关联弱，属并行关系）：
-   - 是新主题 → 给出英文短名 slug 与中文标题 title，slug **不得与【现有主题】中任何 slug 重复**。
-   - 不是 → slug/title 与当前主题一致。
+2. 为这个问题**命名一个新主题**：给出英文短名 slug（仅小写字母/数字/连字符）与中文标题 title；
+   slug **不得与【现有主题】中任何 slug 重复**。
 
 【输出】只输出 JSON：{"optimized_question": "...", "slug": "...", "title": "..."}
 """
@@ -199,22 +212,40 @@ OPTIMIZE_INITIAL_TEMPLATE = """你是提问优化与主题命名助手。
 def render_optimize_initial_prompt(
     *,
     question: str,
-    slug: str,
     background: str,
     concepts_mastered: Iterable[Mapping[str, str]],
     concepts_learning: Iterable[Mapping[str, str]],
-    topics: Iterable[Mapping[str, str]],
     context: str = "",
 ) -> str:
-    """渲染模式A的 user prompt（§6.3）。
+    """渲染模式A「优化版」的 user prompt（§6.3）：只优化问题、**不喂 topics**。
 
-    `slug` 与 `question` **原样保留**（不参与「（暂无）」兜底）：空 slug = 新会话/新主题；
-    `question` 为必填入参（见 §6 渲染约定）；`context`（引用片段）为空时渲染为「（暂无）」。
+    `question` 为必填入参、原样保留；`context`（引用片段）为空时渲染为「（暂无）」。
     """
     return _fill(
         OPTIMIZE_INITIAL_TEMPLATE,
         {
-            "slug": slug,
+            "background": _or_na(background),
+            "concepts_mastered": format_concepts(concepts_mastered),
+            "concepts_learning": format_concepts(concepts_learning),
+            "question": question,
+            "context": _or_na(context),
+        },
+    )
+
+
+def render_optimize_initial_new_topic_prompt(
+    *,
+    question: str,
+    topics: Iterable[Mapping[str, str]],
+    background: str,
+    concepts_mastered: Iterable[Mapping[str, str]],
+    concepts_learning: Iterable[Mapping[str, str]],
+    context: str = "",
+) -> str:
+    """渲染模式A「命名版」的 user prompt（§6.3）：优化问题 + 命名新主题（喂【现有主题】供去重）。"""
+    return _fill(
+        OPTIMIZE_INITIAL_NEW_TOPIC_TEMPLATE,
+        {
             "topics": format_topics(topics),
             "background": _or_na(background),
             "concepts_mastered": format_concepts(concepts_mastered),

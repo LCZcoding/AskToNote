@@ -8,6 +8,7 @@ import pytest
 
 from app.agents.question_optimizer import (
     OPTIMIZE_ANNOTATION_SYSTEM_PROMPT,
+    OPTIMIZE_INITIAL_NEW_TOPIC_SYSTEM_PROMPT,
     OPTIMIZE_INITIAL_SYSTEM_PROMPT,
     optimize_annotation,
     optimize_initial,
@@ -15,6 +16,7 @@ from app.agents.question_optimizer import (
 from app.parse import JsonParseError, OptimizeAnnotationResult, OptimizeInitialResult
 from app.prompts import (
     render_optimize_annotation_prompt,
+    render_optimize_initial_new_topic_prompt,
     render_optimize_initial_prompt,
 )
 
@@ -37,40 +39,63 @@ class FakeLLM:
 
 
 # ---------------------------------------------------------------------------
-# Prompt 渲染（§6.3 + §6 渲染约定）
+# Prompt 渲染（§6.3 + §6 渲染约定）：模式A 两种模板
 # ---------------------------------------------------------------------------
 
 
-def test_render_includes_question_and_keeps_empty_slug_raw() -> None:
-    """问题进入 Prompt；空 slug 原样保留（不替换为「（暂无）」）；引用片段填入。"""
+def test_render_optimize_only_question_includes_question_context_and_no_topics() -> None:
+    """「优化版」问题/引用片段进入 Prompt；**不含** `{topics}` 占位符（不喂主题、不论归属）。"""
     prompt = render_optimize_initial_prompt(
         question="什么是容器",
-        slug="",  # 空 = 新会话/新主题
         background="熟悉 Java 后端",
         concepts_mastered=[{"name": "容器", "level": "familiar"}],
         concepts_learning=[{"name": "镜像", "level": "unfamiliar"}],
-        topics=[{"slug": "docker", "title": "Docker 入门"}],
         context="引用块",
     )
-    assert "{question}" not in prompt and "{slug}" not in prompt
-    assert "{context}" not in prompt
+    assert "{question}" not in prompt and "{context}" not in prompt
+    assert "{topics}" not in prompt and "{slug}" not in prompt
     assert "【用户问题】什么是容器" in prompt
-    assert "【当前主题】（当前主题" in prompt  # 空 slug 原样（后随模板注释）
     assert "【用户背景】熟悉 Java 后端" in prompt
     assert "容器(familiar)" in prompt and "镜像(unfamiliar)" in prompt
-    assert "docker: Docker 入门" in prompt
+    assert "【引用片段】引用块" in prompt
+    assert "【现有主题】" not in prompt
+
+
+def test_render_new_topic_includes_topics() -> None:
+    """「命名版」含【现有主题】（仅用于 slug 去重），并保留问题与引用片段。"""
+    prompt = render_optimize_initial_new_topic_prompt(
+        question="什么是容器",
+        topics=[{"slug": "docker", "title": "Docker 入门"}],
+        background="熟悉 Java 后端",
+        concepts_mastered=[],
+        concepts_learning=[],
+        context="引用块",
+    )
+    assert "{topics}" not in prompt and "{question}" not in prompt
+    assert "【现有主题】docker: Docker 入门" in prompt
+    assert "【用户问题】什么是容器" in prompt
     assert "【引用片段】引用块" in prompt
 
 
-def test_render_empty_optional_values_use_placeholder() -> None:
-    """背景/两类概念/主题/引用片段为空 → 统一渲染「（暂无）」。"""
+def test_render_optimize_empty_optional_values_use_placeholder() -> None:
+    """优化版：背景/两类概念/引用片段为空 → 统一渲染「（暂无）」（共 4 处）。"""
     prompt = render_optimize_initial_prompt(
         question="Q",
-        slug="docker",
         background="",
         concepts_mastered=[],
         concepts_learning=[],
+    )
+    assert prompt.count("（暂无）") == 4
+
+
+def test_render_new_topic_empty_optional_values_use_placeholder() -> None:
+    """命名版：主题/背景/两类概念/引用片段为空 → 统一渲染「（暂无）」（共 5 处）。"""
+    prompt = render_optimize_initial_new_topic_prompt(
+        question="Q",
         topics=[],
+        background="",
+        concepts_mastered=[],
+        concepts_learning=[],
     )
     assert prompt.count("（暂无）") == 5
 
@@ -80,27 +105,67 @@ def test_render_empty_optional_values_use_placeholder() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_agent_returns_parsed_model_and_uses_json_mode() -> None:
-    """调 `chat(json_mode=True)`，返回校验后的 `OptimizeInitialResult`。"""
+def test_agent_optimize_only_returns_question_without_naming() -> None:
+    """走优化版：`chat(json_mode=True)`、system = 优化版提示词、**不产出** slug/title。"""
+    fake = FakeLLM([json.dumps({"optimized_question": "优化后的问题"})])
+    out = optimize_initial(
+        fake,
+        question="什么是容器",
+        background="",
+        concepts_mastered=[],
+        concepts_learning=[],
+        context="引用块",
+    )
+    assert isinstance(out, OptimizeInitialResult)
+    assert out.optimized_question == "优化后的问题"
+    assert out.slug == "" and out.title == ""
+    assert fake.calls[0]["json_mode"] is True
+    assert fake.calls[0]["system"] == OPTIMIZE_INITIAL_SYSTEM_PROMPT
+    assert "【用户问题】什么是容器" in fake.calls[0]["user"]
+    assert "【引用片段】引用块" in fake.calls[0]["user"]
+    assert "【现有主题】" not in fake.calls[0]["user"]
+
+
+def test_agent_new_topic_returns_slug_and_title() -> None:
+    """走命名版：system = 命名版提示词、topics 进 Prompt、返回 slug/title。"""
     fake = FakeLLM(
         [json.dumps({"optimized_question": "优化后的问题", "slug": "docker", "title": "Docker 入门"})]
     )
     out = optimize_initial(
         fake,
         question="什么是容器",
-        slug="",
         background="",
         concepts_mastered=[],
         concepts_learning=[],
-        topics=[],
-        context="引用块",
+        new_topic=True,
+        topics=[{"slug": "k8s", "title": "K8s 入门"}],
     )
-    assert isinstance(out, OptimizeInitialResult)
     assert out.optimized_question == "优化后的问题" and out.slug == "docker"
-    assert fake.calls[0]["json_mode"] is True
-    assert fake.calls[0]["system"] == OPTIMIZE_INITIAL_SYSTEM_PROMPT
-    assert "【用户问题】什么是容器" in fake.calls[0]["user"]
-    assert "【引用片段】引用块" in fake.calls[0]["user"]
+    assert out.title == "Docker 入门"
+    assert fake.calls[0]["system"] == OPTIMIZE_INITIAL_NEW_TOPIC_SYSTEM_PROMPT
+    assert "k8s: K8s 入门" in fake.calls[0]["user"]
+
+
+def test_agent_new_topic_retries_when_slug_empty() -> None:
+    """命名版空 slug → 回喂重试 1 次（第二次给全则返回）。"""
+    fake = FakeLLM(
+        [
+            json.dumps({"optimized_question": "Q", "slug": "", "title": "标题"}),
+            json.dumps({"optimized_question": "Q", "slug": "docker", "title": "Docker 入门"}),
+        ]
+    )
+    out = optimize_initial(
+        fake,
+        question="Q",
+        background="",
+        concepts_mastered=[],
+        concepts_learning=[],
+        new_topic=True,
+        topics=[],
+    )
+    assert out.slug == "docker" and out.title == "Docker 入门"
+    assert len(fake.calls) == 2
+    assert "slug" in fake.calls[1]["user"]  # 错误信息回喂
 
 
 def test_agent_raises_json_parse_error_after_two_tries() -> None:
@@ -110,11 +175,9 @@ def test_agent_raises_json_parse_error_after_two_tries() -> None:
         optimize_initial(
             fake,
             question="Q",
-            slug="",
             background="",
             concepts_mastered=[],
             concepts_learning=[],
-            topics=[],
         )
     assert len(fake.calls) == 2
 

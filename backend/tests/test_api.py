@@ -307,56 +307,60 @@ def test_list_notes_empty_when_no_notes(env) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_optimize_initial_returns_contract(env) -> None:
-    """返回 `{optimized_question, slug, title}`；Prompt 注入问题且以 json_mode 调用。"""
+def test_optimize_only_question_returns_contract(env) -> None:
+    """默认（`new_topic=False`）**只优化问题**：响应仅含 `optimized_question`，**不喂主题、不命名**。"""
     client, holder = env
-    holder["llm"] = FakeLLM(
-        json_responses=[
-            json.dumps(
-                {"optimized_question": "什么是 Docker 容器", "slug": "docker", "title": "Docker 入门"}
-            )
-        ]
-    )
+    holder["llm"] = FakeLLM(json_responses=[json.dumps({"optimized_question": "什么是 Docker 容器"})])
     resp = client.post("/api/optimize/initial", json={"question": "docker 里的容器是啥"})
     assert resp.status_code == 200
-    assert resp.json() == {
-        "optimized_question": "什么是 Docker 容器",
-        "slug": "docker",
-        "title": "Docker 入门",
-    }
+    assert resp.json() == {"optimized_question": "什么是 Docker 容器"}
     call = holder["llm"].json_calls[0]
     assert call["json_mode"] is True
     assert "【用户问题】docker 里的容器是啥" in call["user"]
+    assert "【现有主题】" not in call["user"]
 
 
-def test_optimize_initial_prompt_lists_all_topics_and_raw_slug(env) -> None:
-    """【现有主题】含全部主题（用于 slug 去重、不排除当前）；当前 slug 原样渲染。"""
+def test_optimize_new_topic_lists_all_topics_and_returns_naming(env) -> None:
+    """显式新建（`new_topic=True`）：命名版 Prompt 含全部主题，响应含 slug/title。"""
     client, holder = env
     memory.insert_note("Docker 入门", "docker", "p")
     memory.insert_note("Java 基础", "java", "p")
     holder["llm"] = FakeLLM(
         json_responses=[
-            json.dumps({"optimized_question": "Q2", "slug": "docker", "title": "Docker 入门"})
+            json.dumps({"optimized_question": "Q2", "slug": "k8s", "title": "K8s 入门"})
         ]
     )
-    client.post("/api/optimize/initial", json={"question": "Q", "slug": "docker"})
+    resp = client.post("/api/optimize/initial", json={"question": "Q", "new_topic": True})
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "optimized_question": "Q2",
+        "slug": "k8s",
+        "title": "K8s 入门",
+    }
     user = holder["llm"].json_calls[0]["user"]
     assert "docker: Docker 入门" in user
     assert "java: Java 基础" in user
-    assert "【当前主题】docker（" in user
 
 
-def test_optimize_initial_passes_context_into_prompt(env) -> None:
+def test_optimize_new_topic_sanitizes_and_dedupes_slug(env) -> None:
+    """命名版产出的 slug 被清洗为 `[a-z0-9-]` 且与已有主题去重（加 `-2` 后缀）。"""
+    client, holder = env
+    memory.insert_note("Docker 入门", "docker", "p")
+    holder["llm"] = FakeLLM(
+        json_responses=[json.dumps({"optimized_question": "Q", "slug": "Docker!", "title": "Docker 进阶"})]
+    )
+    resp = client.post("/api/optimize/initial", json={"question": "Q", "new_topic": True})
+    assert resp.status_code == 200
+    assert resp.json()["slug"] == "docker-2"  # 清洗（去 `!`）→ 去重（已有 docker）
+
+
+def test_optimize_passes_context_into_prompt(env) -> None:
     """`context`（引用片段）透传进模式A 的 Prompt。"""
     client, holder = env
-    holder["llm"] = FakeLLM(
-        json_responses=[
-            json.dumps({"optimized_question": "Q2", "slug": "docker", "title": "Docker 入门"})
-        ]
-    )
+    holder["llm"] = FakeLLM(json_responses=[json.dumps({"optimized_question": "Q2"})])
     resp = client.post(
         "/api/optimize/initial",
-        json={"question": "这段怎么理解", "slug": "docker", "context": "引用片段原文"},
+        json={"question": "这段怎么理解", "context": "引用片段原文"},
     )
     assert resp.status_code == 200
     user = holder["llm"].json_calls[0]["user"]
@@ -367,10 +371,7 @@ def test_optimize_initial_retries_on_bad_json(env) -> None:
     """首次非法 JSON → 回喂重试 1 次成功（T1.8 容错生效）。"""
     client, holder = env
     holder["llm"] = FakeLLM(
-        json_responses=[
-            "这不是 JSON",
-            json.dumps({"optimized_question": "OK", "slug": "docker", "title": "Docker"}),
-        ]
+        json_responses=["这不是 JSON", json.dumps({"optimized_question": "OK"})]
     )
     resp = client.post("/api/optimize/initial", json={"question": "Q"})
     assert resp.status_code == 200

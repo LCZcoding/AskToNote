@@ -32,7 +32,7 @@ class JsonParseError(Exception):
 
 
 class OptimizeInitialResult(BaseModel):
-    """模式A（§6.3）：优化后问题 + 主题命名。"""
+    """模式A（§6.3）：优化后问题（`slug`/`title` 仅**命名版** `new_topic=true` 时给出）。"""
 
     optimized_question: str
     slug: str = ""

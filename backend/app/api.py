@@ -2,7 +2,7 @@
 
 - `POST /api/answer`（T1.7）：SSE 流式作答 + 落盘；
 - `GET /api/note/{slug}`、`GET /api/notes`（T1.9）：读接口；
-- `POST /api/optimize/initial`（T1.10）：模式A 优化初始问题 + 命名主题；
+- `POST /api/optimize/initial`（T1.10）：模式A 优化初始问题（`new_topic` 时另命名主题）；
 - `POST /api/optimize/annotation`（T3.2）：模式B 标注 → 候选问题；
 - `POST /api/annotate`（T3.3）：模式②标注扩写 + 落盘。
 
@@ -163,46 +163,75 @@ def get_notes() -> list[dict]:
 
 
 class OptimizeInitialRequest(BaseModel):
-    """`POST /api/optimize/initial` 入参（Plan §4.1）：原始问题 + 当前主题 slug（可空 = 新会话）。
+    """`POST /api/optimize/initial` 入参（Plan §4.1）：原始问题 + 是否显式新建主题。
 
-    `context`（引用片段）可选；只进 Prompt。
+    `context`（引用片段）可选；只进 Prompt。`new_topic=True` 表示用户**显式新建主题**
+    （点「新建笔记」或无主题时首次提问），模式A 才额外命名 slug/title；**模式A 不判定主题归属**。
     """
 
     question: str
-    slug: str = ""
     context: str = ""
+    new_topic: bool = False
 
 
 @router.post("/optimize/initial")
 def optimize_initial(
     req: OptimizeInitialRequest, llm: LLMClient = Depends(get_llm)
 ) -> dict:
-    """模式A：优化初始问题 + 命名主题（Plan §7）。
+    """模式A：**只优化问题**；`new_topic=True` 时另命名主题（Plan §7）。
 
-    组装 = 当前 slug + **全部**现有主题（供 slug 去重）+ 背景 + 两类概念 + 用户问题；
+    组装 = 背景 + 两类概念 + 用户问题（+ 引用片段）；命名版另加**全部**现有主题（供 slug 去重）。
+    `new_topic` 时对产出 slug 做清洗 + 去重：合法化 `[a-z0-9-]`，与已有主题重复则加 `-2`/`-3` 后缀。
     LLM 输出两层兜底后仍解析失败 → `502`（前端提示）。
     """
     background = memory.get_background()
     concepts_mastered, concepts_learning = memory.concepts_by_mastery()
+
+    if not req.new_topic:  # 只优化问题，不涉及主题归属
+        try:
+            result = question_optimizer.optimize_initial(
+                llm,
+                question=req.question,
+                background=background,
+                concepts_mastered=concepts_mastered,
+                concepts_learning=concepts_learning,
+                context=req.context,
+            )
+        except JsonParseError as exc:
+            raise HTTPException(status_code=502, detail=f"问题优化失败：{exc}")
+        return {"optimized_question": result.optimized_question}
+
     topics = [{"slug": n["slug"], "title": n["title"]} for n in memory.list_notes()]
     try:
         result = question_optimizer.optimize_initial(
             llm,
             question=req.question,
-            slug=req.slug,
             background=background,
             concepts_mastered=concepts_mastered,
             concepts_learning=concepts_learning,
-            topics=topics,
             context=req.context,
+            new_topic=True,
+            topics=topics,
         )
     except JsonParseError as exc:
         raise HTTPException(status_code=502, detail=f"问题优化失败：{exc}")
+
+    slug = _dedupe_slug(notes.sanitize_slug(result.slug), {t["slug"] for t in topics})
     return {
         "optimized_question": result.optimized_question,
-        "slug": result.slug,
+        "slug": slug,
         "title": result.title,
     }
+
+
+def _dedupe_slug(base: str, taken: set[str]) -> str:
+    """把 slug 与已有主题去重：重复则依次尝试 `-2`/`-3`…（Plan §7）。"""
+    if base not in taken:
+        return base
+    i = 2
+    while f"{base}-{i}" in taken:
+        i += 1
+    return f"{base}-{i}"
 
 
 class OptimizeAnnotationRequest(BaseModel):
