@@ -56,8 +56,9 @@ export default function NoteView() {
     const el = document.getElementById(flashAnchorId)
     if (!el) return
     el.scrollIntoView({ block: 'center' })
-    // 锚点是空的行内 `<a>`，高亮它所在的段落/列表项/单元格，让用户一眼看到「解释在哪」。
-    const target = el.closest('p, li, td, th') ?? el.parentElement
+    // 锚点是空的行内 `<a>`，高亮它所在的段落/列表项/单元格/标题，让用户一眼看到「解释在哪」。
+    // （`brief` 落在正文/列表项里；`deep` 的锚点在文末 `####` 标题行内。）
+    const target = el.closest('p, li, td, th, h1, h2, h3, h4, h5, h6') ?? el.parentElement
     if (!target) return
     target.classList.add('anno-flash')
     const timer = window.setTimeout(
