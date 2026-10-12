@@ -188,3 +188,118 @@ def test_write_connection_commits_and_read_back(db_path) -> None:
     with memory.connection() as conn:
         row = conn.execute("SELECT title FROM notes WHERE slug = 't'").fetchone()
     assert row["title"] == "标题"
+
+
+# ---------------------------------------------------------------------------
+# T4.1 掌握度规则（Spec §7 / Plan §7）
+#   被标注：分数不变（不在库 → 10）且置 pending=1（多次标注只置一次）
+#   已理解：仅 pending=1 → pending=0、score=min(100, score+10)（幂等）
+#   mastered = score ≥ 80（等级由分数推导）
+# ---------------------------------------------------------------------------
+
+
+def _concept_row(name: str) -> tuple[int, int] | None:
+    """读某概念的 (score, pending)；不存在返回 None。"""
+    with memory.connection() as conn:
+        row = conn.execute(
+            "SELECT score, pending FROM concepts WHERE name = ?", (name,)
+        ).fetchone()
+    return (row["score"], row["pending"]) if row else None
+
+
+def test_annotation_new_concept_scores_ten_and_pending(db_path) -> None:
+    """被标注的新概念：不在库 → score=10、pending=1；等级推导为 unfamiliar。"""
+    memory.mark_concept_annotated("镜像")
+    assert _concept_row("镜像") == (10, 1)
+    assert memory.list_concepts() == [{"name": "镜像", "score": 10, "level": "unfamiliar"}]
+
+
+def test_annotation_existing_concept_keeps_score(db_path) -> None:
+    """已在库的概念被标注：分数不变，仅置 pending=1。"""
+    with memory.write_connection() as conn:
+        conn.execute(
+            "INSERT INTO concepts (name, score, updated_at) VALUES ('容器', 60, 't')"
+        )
+    memory.mark_concept_annotated("容器")
+    assert _concept_row("容器") == (60, 1)
+
+
+def test_annotation_twice_keeps_score_and_pending(db_path) -> None:
+    """同一概念多次标注：分数不变、pending 恒为 1（只置一次，未确认前不叠加）。"""
+    memory.mark_concept_annotated("镜像")
+    memory.mark_concept_annotated("镜像")
+    assert _concept_row("镜像") == (10, 1)
+    with memory.connection() as conn:
+        count = conn.execute("SELECT COUNT(*) AS c FROM concepts").fetchone()["c"]
+    assert count == 1  # 不因重复标注产生重复行
+
+
+def test_annotation_existing_pending_concept_keeps_score(db_path) -> None:
+    """已在库且已 pending 的概念再次标注：分数仍不变。"""
+    memory.mark_concept_annotated("容器")  # 新建 10/pending
+    memory.mark_concept_annotated("容器")  # 再次标注
+    assert _concept_row("容器") == (10, 1)
+
+
+def test_confirm_clears_pending_and_adds_ten(db_path) -> None:
+    """「已理解」：pending 清 0、score +10，返回新分数。"""
+    memory.mark_concept_annotated("镜像")
+    assert memory.confirm_concept("镜像") == 20
+    assert _concept_row("镜像") == (20, 0)
+
+
+def test_confirm_is_idempotent(db_path) -> None:
+    """重复「已理解」不再加分（pending=0 时原样返回、不改分）。"""
+    memory.mark_concept_annotated("镜像")
+    assert memory.confirm_concept("镜像") == 20
+    assert memory.confirm_concept("镜像") == 20
+    assert _concept_row("镜像") == (20, 0)
+
+
+def test_confirm_caps_at_hundred(db_path) -> None:
+    """分数上限 100：95 → 100，不越界。"""
+    memory.mark_concept_annotated("镜像")
+    with memory.write_connection() as conn:
+        conn.execute(
+            "UPDATE concepts SET score = 95, pending = 1 WHERE name = '镜像'"
+        )
+    assert memory.confirm_concept("镜像") == 100
+    assert _concept_row("镜像") == (100, 0)
+
+
+def test_confirm_reaches_mastered_boundary(db_path) -> None:
+    """确认到 80 分即达 mastered（等级由分数推导）。"""
+    with memory.write_connection() as conn:
+        conn.execute(
+            "INSERT INTO concepts (name, score, pending, updated_at) "
+            "VALUES ('容器', 70, 1, 't')"
+        )
+    assert memory.confirm_concept("容器") == 80
+    assert memory.list_concepts() == [{"name": "容器", "score": 80, "level": "mastered"}]
+
+
+def test_confirm_at_cap_keeps_hundred(db_path) -> None:
+    """已达 100 分再确认：仍为 100（min 封顶），且 pending 清 0。"""
+    with memory.write_connection() as conn:
+        conn.execute(
+            "INSERT INTO concepts (name, score, pending, updated_at) "
+            "VALUES ('容器', 100, 1, 't')"
+        )
+    assert memory.confirm_concept("容器") == 100
+    assert _concept_row("容器") == (100, 0)
+
+
+def test_confirm_missing_concept_returns_none(db_path) -> None:
+    """概念不在库：返回 None，且不凭空建行。"""
+    assert memory.confirm_concept("不存在") is None
+    assert _concept_row("不存在") is None
+
+
+def test_level_boundaries_from_score(db_path) -> None:
+    """等级由分数推导的边界（Plan §3）：<20 unfamiliar | 20-49 blurry | 50-79 familiar | ≥80 mastered。"""
+    assert memory.level_from_score(19) == "unfamiliar"
+    assert memory.level_from_score(20) == "blurry"
+    assert memory.level_from_score(49) == "blurry"
+    assert memory.level_from_score(50) == "familiar"
+    assert memory.level_from_score(79) == "familiar"
+    assert memory.level_from_score(80) == "mastered"

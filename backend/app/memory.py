@@ -179,6 +179,59 @@ def concepts_by_mastery() -> tuple[list[dict], list[dict]]:
     return mastered, learning
 
 
+# ---------------------------------------------------------------------------
+# T4.1 掌握度规则（Spec §7 / Plan §7，程序计算，分数只读）
+# ---------------------------------------------------------------------------
+
+
+def mark_concept_annotated(name: str) -> None:
+    """被标注规则（Spec §7.2 / Plan §7）。
+
+    概念**分数不变**（**不在库 → 新建 `score=10`**）；两种情况**均置 `pending=1`**
+    （同一概念多次标注只置一次，天然幂等，未确认前不叠加）。
+    `kind=concept` 与 `kind=statement` 同规则，均以模式B 给出的概念名调用本函数。
+    """
+    now = _now()
+    with write_connection() as conn:
+        row = conn.execute("SELECT id FROM concepts WHERE name = ?", (name,)).fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO concepts (name, score, pending, updated_at) "
+                "VALUES (?, 10, 1, ?)",
+                (name, now),
+            )
+        else:
+            conn.execute(
+                "UPDATE concepts SET pending = 1, updated_at = ? WHERE name = ?",
+                (now, name),
+            )
+
+
+def confirm_concept(name: str) -> int | None:
+    """学懂确认规则（Spec §7.3 / Plan §7）。
+
+    **仅当该概念 `pending=1`** 时：`pending=0`、`score=min(100, score+10)`，返回新分数；
+    `pending=0` 时**原样返回当前分数、不改分**（幂等，防重复点击/重发虚增）；
+    概念**不在库**时返回 `None`（不建行、不改任何数据）。
+    """
+    now = _now()
+    with write_connection() as conn:
+        row = conn.execute(
+            "SELECT score, pending FROM concepts WHERE name = ?", (name,)
+        ).fetchone()
+        if row is None:
+            return None
+        score = int(row["score"])
+        if not row["pending"]:
+            return score
+        new_score = min(100, score + 10)
+        conn.execute(
+            "UPDATE concepts SET score = ?, pending = 0, updated_at = ? WHERE name = ?",
+            (new_score, now, name),
+        )
+        return new_score
+
+
 def list_notes() -> list[dict]:
     """全部主题，按 `updated_at` 倒序（最新在前）；元素含 id/title/slug/file_path/时间戳。"""
     with connection() as conn:

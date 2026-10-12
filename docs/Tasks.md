@@ -277,10 +277,12 @@
 
 **验证标准（Plan §10）**：记忆随标注/确认更新，并影响下次回答。
 
-- [ ] **T4.1 掌握度规则 + 单测**
+- [x] **T4.1 掌握度规则 + 单测**
   - 做：`memory.py` 实现 Plan §7 规则：被标注**不改分**（不在库 → `score=10`）且置 `pending=1`（**多次标注只置一次**）；`mastered` = `score≥80`；等级由 score 推导；`tests/test_memory.py`。
   - 产出：规则函数 + `tests/test_memory.py`。
   - 验证：`uv run pytest tests/test_memory.py` 通过（含"已在库被标注不改分"用例）。
+  - 实现：`memory.py` 新增**两个纯规则函数**（不含 HTTP）：`mark_concept_annotated(name)`——不在库 `INSERT score=10,pending=1`、在库仅置 `pending=1` 不动分（多次标注天然幂等）；`confirm_concept(name) -> int | None`——仅 `pending=1` 时 `pending=0`、`score=min(100,score+10)` 并返回新分，`pending=0` 原样返回（幂等），**不在库返回 `None`**（不建行，经用户确认的边界）。`updated_at` 随写刷新。等级复用既有 `level_from_score`（≥80=mastered）。
+  - 实测：`uv run pytest -q` → **143 passed**（基线 132 + 新增 11）：覆盖新建=10/pending=1、在库被标注不改分、重复标注分数/pending/行数均不变、确认 `10→20`、连点两次只 +10、`95→100` 与 `100→100` 封顶、`70→80` 达 mastered、概念不存在返回 `None`、等级边界 `19/20/49/50/79/80`。任务范围仅规则函数，HTTP 路由留 T4.2、接线留 T4.6（未越界）。
 
 - [ ] **T4.2 记忆读接口 + 已理解确认**
   - 做：`GET /api/memory` → `{background, concepts:[{name,score,level}]}`（`level` 后端推导，`pending` **不返回**）；`POST /api/memory/confirm` → 仅 `pending=1` 时 `pending=0`、`score=min(100, score+10)`，否则原样返回（**幂等**）。
