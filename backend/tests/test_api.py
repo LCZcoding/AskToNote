@@ -782,3 +782,76 @@ def test_annotate_prompt_uses_memory_two_categories(env) -> None:
     user = holder["llm"].json_calls[0]["user"]
     assert "容器(familiar)" in user
     assert "镜像(unfamiliar)" in user
+
+
+# ---------------------------------------------------------------------------
+# T4.6（后端部分）记忆写入接线：/api/annotate 步骤3 置 pending（Spec §7 规则2 / Plan §7）
+#   概念分数不变；不在库 → score=10；两种情况均 pending=1；kind 同规则；concept 空则不建行
+# ---------------------------------------------------------------------------
+
+
+def _concept_score_pending(name: str):
+    """读取概念行的 `(score, pending)`；不存在返回 None。"""
+    with memory.connection() as conn:
+        row = conn.execute(
+            "SELECT score, pending FROM concepts WHERE name = ?", (name,)
+        ).fetchone()
+    return (row["score"], row["pending"]) if row else None
+
+
+def test_annotate_marks_new_concept_pending_score_ten(env) -> None:
+    """标注一个未在库的概念 → 新建 `score=10` 且 `pending=1`。"""
+    client, holder = env
+    _seed_note_with_body("docker", "Docker 入门", "什么是容器", "容器是一种轻量级虚拟化技术。")
+    holder["llm"] = FakeLLM(json_responses=[json.dumps({"insert": {"insert_text": "（简释）"}})])
+    resp = client.post(
+        "/api/annotate",
+        json={"slug": "docker", "anchor": "容器", "concept": "容器", "kind": "concept", "depth": "brief"},
+    )
+    assert resp.status_code == 200
+    assert _concept_score_pending("容器") == (10, 1)
+
+
+def test_annotate_existing_concept_keeps_score_and_sets_pending(env) -> None:
+    """已在库（`pending=0`）的概念再被标注 → 分数**不变**、仅置 `pending=1`；再确认只 +10。"""
+    client, holder = env
+    _seed_note_with_body("docker", "Docker 入门", "什么是容器", "容器是一种轻量级虚拟化技术。")
+    _seed_concept("容器", 20, 0)
+    holder["llm"] = FakeLLM(json_responses=[json.dumps({"insert": {"insert_text": "（简释）"}})])
+    resp = client.post(
+        "/api/annotate",
+        json={"slug": "docker", "anchor": "容器", "concept": "容器", "kind": "concept", "depth": "brief"},
+    )
+    assert resp.status_code == 200
+    assert _concept_score_pending("容器") == (20, 1)
+    # 再点「已理解」：只 +10（不按标注次数叠加）
+    assert client.post("/api/memory/confirm", json={"concept": "容器"}).json() == {
+        "ok": True,
+        "score": 30,
+    }
+
+
+def test_annotate_statement_kind_marks_same_rule(env) -> None:
+    """`kind=statement` 提炼出的概念走同一规则（Spec FR-10）。"""
+    client, holder = env
+    _seed_note_with_body("docker", "Docker 入门", "什么是容器", "低耦合的代码很优秀。")
+    holder["llm"] = FakeLLM(json_responses=[json.dumps({"insert": {"insert_text": "（简释）"}})])
+    resp = client.post(
+        "/api/annotate",
+        json={"slug": "docker", "anchor": "低耦合", "concept": "低耦合", "kind": "statement", "depth": "brief"},
+    )
+    assert resp.status_code == 200
+    assert _concept_score_pending("低耦合") == (10, 1)
+
+
+def test_annotate_without_concept_creates_no_memory(env) -> None:
+    """`concept` 缺省（空串）→ 不新建任何概念行（标注记录 concept 仍为 NULL）。"""
+    client, holder = env
+    _seed_note_with_body("docker", "Docker 入门", "什么是容器", "容器是一种轻量级虚拟化技术。")
+    holder["llm"] = FakeLLM(json_responses=[json.dumps({"insert": {"insert_text": "（简释）"}})])
+    resp = client.post(
+        "/api/annotate",
+        json={"slug": "docker", "anchor": "容器", "depth": "brief"},
+    )
+    assert resp.status_code == 200
+    assert client.get("/api/memory").json()["concepts"] == []

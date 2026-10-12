@@ -363,8 +363,10 @@ def annotate_route(req: AnnotateRequest, llm: LLMClient = Depends(get_llm)) -> d
     """模式②标注扩写 + 落盘（Plan §7）。
 
     顺序 = 读笔记 → 模式② → 定位插入（brief 插简释 / deep 加 `####` 章节）→
-    写 `annotations` 与 `questions(source='annotation')` → 刷新 `notes.updated_at` → 返回全文。
-    **M3 暂不写概念记忆**（`concepts`/`pending` 由 M4 T4.6 接入）。
+    写 `annotations` 与 `questions(source='annotation')` → **写概念记忆** → 刷新 `notes.updated_at` → 返回全文。
+    记忆写入（Spec §7 规则2 / Plan §7 步骤3）：`concept`/`kind` 均来自请求，概念**分数不变**、
+    **不在库 → `score=10`**、两种情况**均置 `pending=1`**（`kind=concept` 与 `statement` 同规则；
+    `concept` 为空则不建行）。
     """
     record = memory.get_note_by_slug(req.slug)
     if record is None:
@@ -404,5 +406,7 @@ def annotate_route(req: AnnotateRequest, llm: LLMClient = Depends(get_llm)) -> d
     concept = req.concept or None
     memory.insert_annotation(note_id, req.anchor, concept, req.depth)
     memory.insert_question(note_id, req.question or req.anchor, concept, "annotation")
+    if concept is not None:
+        memory.mark_concept_annotated(concept)
     memory.touch_note(req.slug)
     return {"note_markdown": updated, "anchor_id": anchor_id}

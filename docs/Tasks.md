@@ -314,6 +314,9 @@
   - 做：把 T4.1 的规则接到两处——①`POST /api/annotate` 步骤3：`concept`/`kind` 取自请求，概念**分数不变**、**不在库 → `score=10`**、两种情况均置 `pending=1`（**多次标注只置一次**）；②前端「已理解」按钮 → `POST /api/memory/confirm`，返回后进入下一条（接 T3.6）。
   - 产出：`app/api.py` 接线 + 前端「已理解」调用。
   - 验证：标注一个概念后 `concepts` 出现该概念且 `pending=1`；点「已理解」→ `pending=0`、`10→20`；**同一概念再标注一次，确认总分只 +10**（幂等）。
+  - ✅ **后端部分（①）已完成**：`api.py` 的 `annotate_route` 在 `insert_annotation`/`insert_question` **之后**（锚点失败会先 422，不写记忆）调用 `memory.mark_concept_annotated(concept)`；`concept` 取自 `req.concept or None`，空串不建行；`kind` 不影响规则。零新增接口，仅接线 T4.1 既有规则。
+  - 实测（后端）：`uv run pytest -q` → **172 passed**（基线 168 + 新增 4）：标注未在库概念 → `(10, 1)`；在库 `(20, 0)` 再标注 → 仍 `20` 且 `pending=1`、再确认 → `30`；`kind=statement` 同规则；`concept` 缺省不建任何概念行。
+  - ⏳ **前端部分（②「已理解」按钮接线）待做**，与 T4.5 设置页一并放到前端阶段。
 
 ---
 
