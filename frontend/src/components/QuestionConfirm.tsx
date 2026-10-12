@@ -5,6 +5,8 @@
 //   点「开始扩写」进入 `annotating`。
 // - 串行扩写（T3.6）：`annotating` 期间**一次一个**——扩写当前条 → 用户读 →
 //   点「已理解」/「跳过」→ 下一条；**单条失败即中断**、提示**该条重试**（不推进队列）。
+//   「已理解」另调 `POST /api/memory/confirm` 记「已学会」（T4.6②；失败也推进、仅提示）；
+//   「跳过」不调 `confirm`、记忆不变。
 //   下钻项（`depth=null`）在轮到它时先让用户选深度。
 // - 下钻（T3.5）：`annotating` 期间在笔记区**新划的词**立即**单独再走一遍模式B**，
 //   结果**插到队列最前、优先处理**（Plan §8）。
@@ -13,7 +15,7 @@
 // 能在卡片消失后仍然显示；`annotating` 期间也靠它承载下钻监听。
 
 import { useEffect, useRef, useState } from 'react'
-import { annotate, optimizeAnnotation, streamAnswer } from '../api'
+import { annotate, confirmConcept, optimizeAnnotation, streamAnswer } from '../api'
 import type { AnnotationDepth } from '../types'
 import type { PendingQuestion } from '../store'
 import { useStore } from '../store'
@@ -70,6 +72,8 @@ export default function QuestionConfirm() {
   const [expanding, setExpanding] = useState(false)
   /** 当前条扩写失败（中断，等用户点「重试该条」）。 */
   const [failed, setFailed] = useState(false)
+  /** 「已理解」的 `POST /api/memory/confirm` 进行中（期间禁用按钮，避免重复提交/竞态）。 */
+  const [confirming, setConfirming] = useState(false)
 
   // 仅处理模式A 的初始确认卡。
   const initial = card?.mode === 'initial' ? card : null
@@ -162,22 +166,48 @@ export default function QuestionConfirm() {
 
   /**
    * 「已理解」/「跳过」：移除当前条并推进下一条（无则收尾回 `idle`）。
-   * 二者在本任务均为**前端本地动作**——不回滚已写扩写、不改记忆
-   * （`已理解` → `POST /api/memory/confirm` 的接线见 M4 T4.6）。
+   * 二者均为**前端本地动作**——不回滚已写扩写。
+   * 差异（Plan §8）：`已理解` 先 `POST /api/memory/confirm` 记「已学会」再推进；
+   * `跳过` 不调 `confirm`、记忆不变（均在 `handleUnderstand`/本函数体现）。
    */
   function advance() {
     if (currentId === null) return
-    const rest = pendingQuestions.filter((q) => q.id !== currentId)
     removePendingQuestion(currentId)
     setFailed(false)
     setError('')
-    const next = rest[0]
+    // 读**最新**队列（异步确认期间可能有下钻插队），避免用渲染快照误判「队列已空」。
+    const next = useStore.getState().pendingQuestions[0]
     if (!next) {
       setCurrentId(null)
       finishAnnotating()
       return
     }
     startItem(next)
+  }
+
+  /**
+   * 「已理解」：先 `POST /api/memory/confirm`（清 `pending`、`+10`、**幂等**）记「已学会」，
+   * 再推进下一条（Plan §8）。**失败也推进**——已理解属本地动作、队列必须能走完，
+   * 失败原因仅经错误条提示、不阻断；`concept` 为空（未落库）则跳过调用。
+   * 请求期间 `confirming=true` 禁用按钮，避免重复提交 / 与「跳过」竞态。
+   */
+  async function handleUnderstand() {
+    if (confirming) return
+    const q = current
+    if (!q) return
+
+    setConfirming(true)
+    let message = ''
+    if (q.concept.trim() !== '') {
+      try {
+        await confirmConcept(q.concept)
+      } catch (exc) {
+        message = exc instanceof Error ? exc.message : String(exc)
+      }
+    }
+    advance()
+    setConfirming(false)
+    if (message !== '') setError(message)
   }
 
   /** 下钻项（`depth=null`）选定深度后立即扩写。 */
@@ -410,13 +440,15 @@ export default function QuestionConfirm() {
                   <button
                     type="button"
                     className="serial-understood"
-                    onClick={() => advance()}
+                    disabled={confirming}
+                    onClick={() => void handleUnderstand()}
                   >
-                    已理解
+                    {confirming ? '确认中…' : '已理解'}
                   </button>
                   <button
                     type="button"
                     className="serial-skip"
+                    disabled={confirming}
                     onClick={() => advance()}
                   >
                     跳过

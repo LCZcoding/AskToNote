@@ -245,6 +245,11 @@
   background: var(--bg);
   color: var(--text);
 }
+/* 「已理解」确认请求进行中：两个按钮均禁用（防重复提交 / 竞态）。 */
+.serial-actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 
 .confirm-error {
   display: flex;
