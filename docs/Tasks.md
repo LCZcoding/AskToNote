@@ -330,10 +330,11 @@
   - 产出：`app/prompts.py`、`app/agents/question_optimizer.py`、`app/notes.py`（`sanitize_slug`）、`app/api.py`（`new_topic` 分支 + `_dedupe_slug`）。
   - 验证：`new_topic=false` 只回 `optimized_question`、不喂主题；`new_topic=true` 回 `{optimized_question, slug, title}` 且 slug 已清洗去重（`docker!` + 已有 `docker` → `docker-2`）；命名版空 slug 触发回喂重试。
 
-- [ ] **T5.2 跨主题正向内链**
+- [x] **T5.2 跨主题正向内链**
   - 做：模式① Prompt 注入【其他主题】清单（`slug: title`），要求跨主题概念用 `[[slug#概念]]`、本主题用 `[[概念名]]`（高亮渲染已由 **T2.4** 覆盖，**不改前端**）。
   - 产出：模式① Prompt 与组装收口。
   - 验证：springmvc 笔记中引用 flux 概念时输出 `[[flux#概念]]`，前端渲染为高亮标签且不可点击。
+  - 落地说明（审计结论）：**组装与 Prompt 早已就位**——`app/prompts.py` 的 `ANSWER_NOTE_TEMPLATE` 含 `{topics}` 占位符与「规则4 跨主题用 `[[该主题slug#概念名]]`」，`app/api.py#answer` 已组装**非当前主题**清单并透传，`frontend/src/remark-wikilink.ts` 支持 `[[slug#概念]]` 渲染为不可点击 `<span class="wikilink">`。本次**不改生产代码**，仅补测试 `tests/test_answer_note.py::test_render_includes_cross_topic_wikilink_rule_and_other_topics` 固化该契约。
 
 ---
 

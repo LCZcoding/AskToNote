@@ -69,6 +69,23 @@ def test_render_empty_values_use_na_placeholder() -> None:
     assert "（slug=）" in user  # slug 为空时不替换为占位
 
 
+def test_render_includes_cross_topic_wikilink_rule_and_other_topics() -> None:
+    """T5.2 跨主题正向内链：模式① Prompt 含 `[[该主题slug#概念名]]` 规则，
+    且【其他主题】清单把每个可选 slug 都渲染出来（供模型填写内链 slug）。"""
+    user = _render(
+        topics=[
+            {"slug": "flux", "title": "Flux 响应式"},
+            {"slug": "java", "title": "Java 基础"},
+        ]
+    )
+    # 规则 4：跨主题用 [[slug#概念名]]（本主题用 [[概念名]]），slug 只能取自清单
+    assert "[[该主题slug#概念名]]" in user
+    # 【其他主题】清单把全部可选 slug 都渲染出来（多主题按行拼接），模型据此产出 [[flux#概念]] 形式内链
+    topics_line = next(l for l in user.splitlines() if l.startswith("【其他主题】"))
+    assert topics_line.split("//")[0].strip() == "【其他主题】flux: Flux 响应式"
+    assert "java: Java 基础" in user
+
+
 def test_format_concepts_and_topics_join_multiple() -> None:
     """多概念/多主题按行拼接；空列表 → 「（暂无）」。"""
     assert (
