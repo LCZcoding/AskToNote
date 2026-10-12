@@ -14,6 +14,7 @@ const DEFAULT_FOLLOWUP_QUESTION = '请详细讲解这段内容'
 export default function AskBar() {
   const phase = useStore((s) => s.phase)
   const noteSlug = useStore((s) => s.noteSlug)
+  const newTopicMode = useStore((s) => s.newTopicMode)
   const pendingContext = useStore((s) => s.pendingContext)
   const setPendingContext = useStore((s) => s.setPendingContext)
   const startOptimize = useStore((s) => s.startOptimize)
@@ -32,6 +33,9 @@ export default function AskBar() {
     loading
   const canSubmit = !busy && (question.trim() !== '' || pendingContext !== '')
 
+  // **显式新建主题**：用户点了「新建笔记」，或当前无主题（首问）。否则默认**并入当前主题**。
+  const newTopic = newTopicMode || noteSlug === ''
+
   async function handleOptimize() {
     if (!canSubmit) return
     setError('')
@@ -40,13 +44,14 @@ export default function AskBar() {
     try {
       const resp = await optimizeInitial({
         question: question.trim() || DEFAULT_FOLLOWUP_QUESTION,
-        slug: noteSlug || undefined,
+        new_topic: newTopic || undefined,
         context: pendingContext || undefined,
       })
       setInitialCard({
         question: resp.optimized_question,
-        slug: resp.slug,
-        title: resp.title,
+        newTopic,
+        slug: resp.slug ?? '',
+        title: resp.title ?? '',
       })
       // 原始问题已交给确认卡，清空输入框，避免残留（引用片段在确认时才消费）
       setQuestion('')

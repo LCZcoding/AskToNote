@@ -13,7 +13,7 @@
 // 能在卡片消失后仍然显示；`annotating` 期间也靠它承载下钻监听。
 
 import { useEffect, useRef, useState } from 'react'
-import { annotate, getNote, optimizeAnnotation, streamAnswer } from '../api'
+import { annotate, optimizeAnnotation, streamAnswer } from '../api'
 import type { AnnotationDepth } from '../types'
 import type { PendingQuestion } from '../store'
 import { useStore } from '../store'
@@ -40,6 +40,7 @@ export default function QuestionConfirm() {
   const card = useStore((s) => s.optimizeCard)
   const phase = useStore((s) => s.phase)
   const noteSlug = useStore((s) => s.noteSlug)
+  const noteTitle = useStore((s) => s.noteTitle)
   const noteMarkdown = useStore((s) => s.noteMarkdown)
   const pendingContext = useStore((s) => s.pendingContext)
   const pendingQuestions = useStore((s) => s.pendingQuestions)
@@ -72,8 +73,8 @@ export default function QuestionConfirm() {
 
   // 仅处理模式A 的初始确认卡。
   const initial = card?.mode === 'initial' ? card : null
-  const isMerge =
-    initial !== null && initial.slug !== '' && initial.slug === noteSlug
+  // 主题归属**由用户决定**（Plan §8）：`newTopic=true` → 新建；否则并入当前主题。
+  const isMerge = initial !== null && !initial.newTopic
 
   /** 当前条（`annotating` 期间）。 */
   const current = pendingQuestions.find((q) => q.id === currentId) ?? null
@@ -90,21 +91,18 @@ export default function QuestionConfirm() {
     beginStreaming(question) // 进入流式：笔记区底部以该问题为标题长出新的 Q/A 块
     setPendingContext('') // 引用片段已消费
 
-    // 目标主题与当前打开的不同（新主题 / 并入其它已有主题）：先切换笔记区
-    if (initial.slug !== noteSlug) {
-      try {
-        const detail = await getNote(initial.slug)
-        openNote(detail.slug, detail.markdown)
-      } catch {
-        openNote(initial.slug, '')
-      }
+    // 目标主题（Plan §8）：显式新建 → 用模式A 命名并切到空白新笔记；否则并入当前主题。
+    const targetSlug = initial.newTopic ? initial.slug : noteSlug
+    const targetTitle = initial.newTopic ? initial.title : noteTitle
+    if (initial.newTopic) {
+      openNote(targetSlug, targetTitle, '') // 新主题：先切到空白笔记区
     }
 
     await streamAnswer(
       {
         question,
-        slug: initial.slug,
-        title: initial.title,
+        slug: targetSlug,
+        title: targetTitle,
         context: pendingContext || undefined,
       },
       {
@@ -137,7 +135,7 @@ export default function QuestionConfirm() {
         depth: q.depth,
         question: q.text,
       })
-      openNote(noteSlug, resp.note_markdown)
+      openNote(noteSlug, noteTitle, resp.note_markdown)
       flashAnchor(resp.anchor_id) // 让用户立即看到「解释插在哪」
     } catch (exc) {
       setFailed(true)
@@ -244,8 +242,12 @@ export default function QuestionConfirm() {
           <div className="confirm-head">
             <span className="confirm-title">确认问题</span>
             <span className="confirm-target">
-              {isMerge ? `并入《${initial.title}》` : `新建《${initial.title}》`}
-              <code className="confirm-slug">{initial.slug}</code>
+              {isMerge
+                ? `并入《${noteTitle}》`
+                : `新建《${initial.title}》`}
+              <code className="confirm-slug">
+                {isMerge ? noteSlug : initial.slug}
+              </code>
             </span>
           </div>
 

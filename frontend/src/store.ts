@@ -45,15 +45,30 @@ export type CandidateWithSnippet = CandidateQuestion & { snippet: string }
  * 模式B 的候选问题列表放在 `pendingQuestions`，此处只标记 mode。
  */
 export type OptimizeCard =
-  | { mode: 'initial'; question: string; slug: string; title: string }
+  | {
+      mode: 'initial'
+      question: string
+      /** 是否**显式新建主题**（用户点「新建笔记」或无主题首问）；否则并入当前主题。 */
+      newTopic: boolean
+      /** `newTopic` 时为由模式A 命名的新 slug/title；并入时为空串。 */
+      slug: string
+      title: string
+    }
   | { mode: 'annotation' }
 
 interface StoreState {
   phase: AppPhase
   /** 当前打开主题的 slug（空串 = 未打开任何主题）。 */
   noteSlug: string
+  /** 当前打开主题的标题（空串 = 未打开任何主题）。 */
+  noteTitle: string
   /** 当前主题笔记全文（Markdown 源码）。 */
   noteMarkdown: string
+  /**
+   * 是否为「新建笔记」态（用户点了「新建笔记」入口，尚未提交问题）。
+   * 为 `true` 时下次提问按**显式新建主题**走模式A 命名版；`noteSlug === ''` 时天然等同新建。
+   */
+  newTopicMode: boolean
   /** 当前确认卡；`null` = 未展示。 */
   optimizeCard: OptimizeCard | null
   /** 划词收集的标注片段（送模式B 之前）。 */
@@ -87,8 +102,12 @@ interface StoreState {
 
 interface StoreActions {
   // —— 笔记 ——
-  /** 打开某主题（启动加载 / 切换主题）。 */
-  openNote: (slug: string, markdown: string) => void
+  /** 打开某主题（启动加载 / 切换主题 / 新建后切到新主题）。 */
+  openNote: (slug: string, title: string, markdown: string) => void
+  /** 进入「新建笔记」态：清空笔记区**从空白页开始**，下次提问按显式新建走模式A 命名版。 */
+  startNewTopic: () => void
+  /** 退出「新建笔记」态（取消新建）：回到未打开笔记的引导态，由用户从侧边栏选一篇。 */
+  cancelNewTopic: () => void
   /** 请求笔记区滚动到某解释锚点并短暂高亮（扩写成功后调用，Plan §8）。 */
   flashAnchor: (anchorId: string) => void
   /** 流式期间累加当前新 Q/A 块的正文增量（T2.6 打字机）。 */
@@ -112,7 +131,12 @@ interface StoreActions {
 
   // —— 确认卡 ——
   /** 模式A 结果：展示初始确认卡（问题可编辑、主题只读）。 */
-  setInitialCard: (card: { question: string; slug: string; title: string }) => void
+  setInitialCard: (card: {
+    question: string
+    newTopic: boolean
+    slug: string
+    title: string
+  }) => void
   /** 模式B 结果：确认区切换为候选问题列表。 */
   setAnnotationCard: () => void
   /** 编辑初始卡里优化后的问题。 */
@@ -150,7 +174,9 @@ export const useStore = create<Store>()((set) => ({
   // 初始态：空闲，未打开笔记，无卡、无标注、无候选。
   phase: 'idle',
   noteSlug: '',
+  noteTitle: '',
   noteMarkdown: '',
+  newTopicMode: false,
   optimizeCard: null,
   annotations: [],
   pendingQuestions: [],
@@ -159,17 +185,24 @@ export const useStore = create<Store>()((set) => ({
   streamingText: '',
   flashAnchorId: '',
 
-  openNote: (slug, markdown) => set({ noteSlug: slug, noteMarkdown: markdown }),
+  openNote: (slug, title, markdown) =>
+    set({ noteSlug: slug, noteTitle: title, noteMarkdown: markdown, newTopicMode: false }),
+  /** 进入「新建笔记」态：清空笔记区**从空白页开始**，下次提问按显式新建走模式A 命名版。 */
+  startNewTopic: () =>
+    set({ newTopicMode: true, noteSlug: '', noteTitle: '', noteMarkdown: '' }),
+  cancelNewTopic: () => set({ newTopicMode: false }),
   flashAnchor: (anchorId) => set({ flashAnchorId: anchorId }),
   appendDelta: (text) =>
     set((s) => ({ streamingText: s.streamingText + text })),
 
   startOptimize: () => set({ phase: 'optimizing', optimizeCard: null }),
-  cancelOptimize: () => set({ phase: 'idle', optimizeCard: null }),
+  cancelOptimize: () =>
+    set({ phase: 'idle', optimizeCard: null, newTopicMode: false }),
   beginStreaming: (question) =>
     set({
       phase: 'streaming',
       optimizeCard: null,
+      newTopicMode: false,
       streamingQuestion: question,
       streamingText: '',
     }),

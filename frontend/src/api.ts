@@ -76,7 +76,7 @@ export function getMemory(): Promise<Memory> {
 
 /* ---- 提问（模式A / 模式①） ---- */
 
-/** `POST /api/optimize/initial`：优化初始问题 + 命名主题（模式A）。 */
+/** `POST /api/optimize/initial`：优化初始问题（`new_topic=true` 时另命名主题，模式A）。 */
 export function optimizeInitial(
   req: OptimizeInitialRequest,
 ): Promise<OptimizeInitialResponse> {

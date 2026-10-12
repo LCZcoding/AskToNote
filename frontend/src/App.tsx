@@ -10,6 +10,7 @@ import AnnotationList from './components/AnnotationList'
 import AskBar from './components/AskBar'
 import NoteView from './components/NoteView'
 import QuestionConfirm from './components/QuestionConfirm'
+import TopicList from './components/TopicList'
 import { useStore } from './store'
 import './App.css'
 
@@ -18,6 +19,8 @@ type LoadState = 'loading' | 'ready' | 'empty' | 'error'
 
 function App() {
   const noteSlug = useStore((s) => s.noteSlug)
+  const newTopicMode = useStore((s) => s.newTopicMode)
+  const cancelNewTopic = useStore((s) => s.cancelNewTopic)
   const openNote = useStore((s) => s.openNote)
   const [state, setState] = useState<LoadState>('loading')
   const [error, setError] = useState('')
@@ -36,7 +39,7 @@ function App() {
         // 列表已按 updated_at 倒序，取第一篇即最近更新
         const detail = await getNote(notes[0].slug)
         if (cancelled) return
-        openNote(detail.slug, detail.markdown)
+        openNote(detail.slug, detail.title, detail.markdown)
         setState('ready')
       } catch (exc) {
         if (cancelled) return
@@ -58,21 +61,47 @@ function App() {
         <p className="app-subtitle">提问即笔记 · 一问一答长成知识</p>
       </header>
 
-      <main className="app-main">
-        {noteSlug === '' && state === 'loading' && (
-          <p className="app-hint">正在加载…</p>
-        )}
-        {noteSlug === '' && state === 'error' && (
-          <p className="app-hint app-hint--error">加载失败：{error}</p>
-        )}
-        {noteSlug === '' && state === 'empty' && (
-          <div className="app-empty">
-            <p>还没有任何主题。</p>
-            <p>提出你的第一个问题，长成第一篇笔记吧。</p>
-          </div>
-        )}
-        {noteSlug !== '' && <NoteView />}
-      </main>
+      <div className="app-body">
+        {/* 主题列表：手动切换已有主题 / 「新建笔记」（Plan §8） */}
+        <TopicList />
+
+        <main className="app-main">
+          {noteSlug === '' && state === 'loading' && (
+            <p className="app-hint">正在加载…</p>
+          )}
+          {noteSlug === '' && state === 'error' && (
+            <p className="app-hint app-hint--error">加载失败：{error}</p>
+          )}
+          {noteSlug === '' && state !== 'loading' && state !== 'error' && (
+            <div className="app-empty">
+              {newTopicMode ? (
+                <>
+                  <p>新笔记</p>
+                  <p>在下方输入你的第一个问题，它会长成这篇新笔记。</p>
+                  <button
+                    type="button"
+                    className="app-empty-action"
+                    onClick={cancelNewTopic}
+                  >
+                    取消
+                  </button>
+                </>
+              ) : state === 'empty' ? (
+                <>
+                  <p>还没有任何主题。</p>
+                  <p>提出你的第一个问题，长成第一篇笔记吧。</p>
+                </>
+              ) : (
+                <>
+                  <p>未打开任何笔记。</p>
+                  <p>从左侧选一篇继续，或点「＋ 新建」开始一篇新笔记。</p>
+                </>
+              )}
+            </div>
+          )}
+          {noteSlug !== '' && <NoteView />}
+        </main>
+      </div>
 
       {/* 提问 / 问题确认区（Plan §8：同一区域按状态复用） */}
       <div className="app-ask">

@@ -52,18 +52,23 @@ export interface CandidateQuestion {
 
 /* ---- 请求 / 响应体 ---- */
 
-/** `POST /api/optimize/initial` 请求（模式A）。`context`=引用片段，可选、只进 Prompt。 */
+/**
+ * `POST /api/optimize/initial` 请求（模式A）。
+ * `context`=引用片段，可选、只进 Prompt；`new_topic=true` 表示用户**显式新建主题**
+ * （点「新建笔记」或在无主题时首次提问），此时模式A 才额外命名 `slug`/`title`。
+ * **模式A 不判定主题归属**。
+ */
 export interface OptimizeInitialRequest {
   question: string
-  slug?: string
   context?: string
+  new_topic?: boolean
 }
 
-/** `POST /api/optimize/initial` 响应。 */
+/** `POST /api/optimize/initial` 响应；`slug`/`title` 仅 `new_topic=true` 时返回。 */
 export interface OptimizeInitialResponse {
   optimized_question: string
-  slug: string
-  title: string
+  slug?: string
+  title?: string
 }
 
 /** `POST /api/answer` 请求（模式①作答，SSE）。 */

@@ -1,0 +1,101 @@
+/* 主题列表（T3.7）：左侧栏，可切换已有主题 / 新建笔记。 */
+
+.topic-list {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 12px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.topic-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.topic-head-label {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.topic-new {
+  padding: 2px 8px;
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.topic-new:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.topic-new-tip {
+  margin: 0;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.topic-empty {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+
+.topic-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.topic-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.topic-item:hover:not(:disabled) {
+  background: var(--accent-bg);
+}
+.topic-item--on {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+}
+.topic-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.topic-item-title {
+  overflow: hidden;
+  color: var(--text-h);
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.topic-item-slug {
+  font-size: 11px;
+  color: var(--text);
+}
+
+.topic-error {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #c0392b;
+}
