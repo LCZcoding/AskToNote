@@ -197,6 +197,13 @@
     - 修法（**先改 Plan 再改码**）：① Plan §4.1 契约补 `/api/annotate` 响应带 `anchor_id`；§6.2 增「`insert_text` 必须整体用**全角括号（）**包裹」；§6.4 输出 schema 与任务补 `snippet_index`；§8 补「成功按 `anchor_id` 自动滚动并短暂高亮」「按 `snippet_index` 取原文、不依赖输出顺序」。② 后端：`CandidateQuestion` 加关键字段 `snippet_index`（缺失触发回喂重试）、`chat_json` 加可选 `validate` 钩子、`optimize_annotation` 校验下标**恰好覆盖 1..N**；`notes.insert_annotation` 返回 `(全文, anchor_id)`、`apply_annotation` 支持传入固定 `anno_id`、`api.py` 回带 `anchor_id`。③ 前端：`store` 加 `flashAnchorId`/`flashAnchor`；`AnnotationList`/下钻 effect 改按 `q.snippet_index - 1` 取原文配对；`QuestionConfirm.runExpand` 成功后 `flashAnchor(resp.anchor_id)`；`NoteView` 监听它 → `scrollIntoView({block:'center'})` + 给所在段落加 `.anno-flash`（1800ms 后移除）。
     - 实测：后端 `uv run pytest -q` → **108 passed**（新增/改：`CandidateQuestion` 缺 `snippet_index` 报错、`chat_json` 走 `validate` 失败回喂重试、下标重排可通过、两次仍不覆盖 1..N 抛错、`apply_annotation` 固定 `anno_id`、`insert_annotation` 返回 `anchor_id` 且 API 响应带 `anchor_id`）；前端 `npm run build` + `npm run lint` 全绿。**端到端实测**（Playwright + Chromium；`page.route` 令模式B 返回**故意重排**的 `snippet_index`，真实调 `/api/annotate`；**16/16 PASS**）：候选顺序按 index 还原为 `[服务等级协议, 灰度发布]`（配对不依赖输出顺序）→ 第 1 条 `anchor` = 「服务等级协议」、第 2 条 = 「灰度发布」（**配对正确**）；扩写成功后出现 `.anno-flash`、其段落落在视口内（`top=397/bottom=481`，视口 800）、`.app-main` `scrollTop 0 → 558`（**自动滚动定位**）、段落文本含全角括号「（」（**解释可辨认**）。验证产物（`verif-f2f1` 种子笔记 + 临时脚本）已清理。
 
+- [ ] **T3.7 主题列表 + 手动切换 / 新建入口（插队，优先于 M4）**
+  - 做：前端新增**主题列表** UI（读 `GET /api/notes`，按 `updated_at` 倒序），点击可在**已有主题间手动切换**（复用 `GET /api/note/{slug}` + `openNote`）；并提供**显式「新建笔记」入口**，不再只依赖模式A 自动判定新主题。
+  - 前置（**先改 Plan §8 再改码**）：补主题列表的契约与交互——列表位置、空态、与「启动自动打开最近一篇」的关系（列表存在时是否仍自动打开）、新建入口如何与模式A 协同（显式新建时是否仍走 `/api/optimize/initial` 确认 slug/title）。后端若无需新接口则复用现有读接口。
+  - 产出：主题列表组件 + 切换/新建接线（+ Plan §8 契约补充）。
+  - 验证：能在多个已有主题间切换查看，各自笔记独立渲染；能显式新建一篇并正确落盘。
+  - 背景：用户反馈**无法验证上一轮 bug 修复合集**——缺少打开**指定笔记**的入口，只能看自动打开的最近一篇；该项插队到当前任务，做完即可自行验收标注配对与滚动高亮。
+
 ---
 
 ## M4 记忆
