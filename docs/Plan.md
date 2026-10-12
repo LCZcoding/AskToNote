@@ -121,8 +121,8 @@ CREATE TABLE annotations (
 
 | 字段 | 含义 |
 |---|---|
-| `slug` / `title` | 主题的英文唯一短名 / 中文显示名（**AI 生成、用户不可改**；后端校验 `slug` 合法+去重） |
-| `slug`（请求参数） | 当前主题的 slug（模式A 判断新旧主题；为空表示新会话/新主题） |
+| `slug` / `title` | 主题的英文唯一短名 / 中文显示名（**AI 生成、用户不可改**；后端把 `slug` 清洗为合法字符并保证与已有主题不重复） |
+| `new_topic`（请求参数） | **是否显式新建主题**：`true` 时模式A 另命名 `slug`/`title`（用户点「新建笔记」或在无主题时首次提问）；默认 `false`（并入当前主题） |
 | `optimized_question` | 优化后的问题 |
 | `questions` | 候选问题列表 `[{text, concept, kind, reason}]` |
 | `reason` | 候选问题的猜问理由 |
@@ -145,7 +145,7 @@ CREATE TABLE annotations (
 
 | 方法/路径 | 请求 | 响应 |
 |---|---|---|
-| `POST /api/optimize/initial` | `{ question, slug?, context? }` | `{ optimized_question, slug, title }` |
+| `POST /api/optimize/initial` | `{ question, new_topic?, context? }` | `{ optimized_question }`；**`new_topic=true` 时**另含 `{ slug, title }` |
 | `POST /api/optimize/annotation` | `{ snippets[], note_markdown }` | `{ questions:[{snippet_index, text, concept, kind, reason}] }` |
 | `POST /api/answer` | `{ question, slug, title, context? }` | **SSE**：`delta`{text} 多次 → `done`{ note_markdown } |
 | `POST /api/annotate` | `{ slug, anchor, concept, kind, depth, question? }` | `{ note_markdown, anchor_id }` |
@@ -166,9 +166,9 @@ data: {"type":"done","note_markdown":"落盘后的笔记全文"}\n\n
 
 出错时用 `data: {"type":"error","message":"..."}\n\n` 替代 `done` 收尾。前端按 `type` 分发（`delta` 累积渲染、`done` 刷新笔记、`error` 提示）。
 
-**`/api/answer` 说明**：`slug`/`title` 由模式A 给出。`slug` 已存在 → `title` **以 `notes` 表为准（忽略请求值）**，以 **Q/A 区块**（`## {确认后的问题}` + 回答正文）**追加**到该主题笔记末尾；新 `slug` → 新建文件（先写 `# {title}`）并**新建** `notes` 记录。落盘在流结束后进行；两种写入**均刷新 `notes.updated_at`**（新建时同时写 `created_at`）。写入笔记的问题用**用户确认后的优化问题**。
+**`/api/answer` 说明**：`slug`/`title` 由**前端**决定——**并入当前主题**时用当前主题的 `slug`/`title`（`slug` 取当前打开笔记）；**显式新建主题**时用模式A 命名、并经后端**清洗+去重**后的 `slug`/`title`。`slug` 已存在 → `title` **以 `notes` 表为准（忽略请求值）**，以 **Q/A 区块**（`## {确认后的问题}` + 回答正文）**追加**到该主题笔记末尾；新 `slug` → 新建文件（先写 `# {title}`）并**新建** `notes` 记录。落盘在流结束后进行；两种写入**均刷新 `notes.updated_at`**（新建时同时写 `created_at`）。写入笔记的问题用**用户确认后的优化问题**。
 
-**`context` 说明（模式A 与 `/api/answer` 通用，Spec FR-4a/FR-4b）**：**可选字段**，仅当用户以**大块选区**（去首尾空白 > 60 字）发起**追问**时携带。后端把它渲染为 Prompt 的【引用片段】：`/api/optimize/initial` 用它辅助**主题判定与命名**，`/api/answer` 用它辅助**作答**；**不进 `## 问题` 标题**（标题 = 用户确认后的问题；问题留空时前端填默认文案「请详细讲解这段内容」）。普通提问不传该字段（渲染为「（暂无）」）。
+**`context` 说明（模式A 与 `/api/answer` 通用，Spec FR-4a/FR-4b）**：**可选字段**，仅当用户以**大块选区**（去首尾空白 > 60 字）发起**追问**时携带。后端把它渲染为 Prompt 的【引用片段】：`/api/optimize/initial` 用它辅助**问题优化（新建主题时也辅助命名）**，`/api/answer` 用它辅助**作答**；**不进 `## 问题` 标题**（标题 = 用户确认后的问题；问题留空时前端填默认文案「请详细讲解这段内容」）。普通提问不传该字段（渲染为「（暂无）」）。
 
 **`/api/annotate` 说明**：定位由后端工具函数完成（**优先词后、兜底行末**；**不做**"全局脱标记→映射回源码坐标"）：
 1. 按空行把源码切成**段落**（每段保留源码与其位置）；
@@ -237,7 +237,7 @@ MODEL=deepseek-flash
 
 ## 6. Prompt 模板（正文）
 
-> **占位符渲染约定**：`{topics}` → `"slug: title"`（如 `docker: Docker 入门`）；`{concepts_mastered}` → `score ≥ 50` 的概念，`名称(等级)`（如 `容器(familiar)`）；`{concepts_learning}` → `score < 50` 的概念，`名称(等级)`（如 `镜像(unfamiliar)`）。**概念记忆一律按 `score` 分这两类喂给 AI**——`< 50` 的多为用户标注过、尚未学会的词，**不得当作已掌握**。`{concepts_existing}`（**仅模式B 使用**）→ **全部概念名清单、不含分数/等级**（如 `容器, 镜像, 低耦合`），供模式B **优先复用同名概念**；`{snippets}`（**仅模式B 使用**）→ **编号列表**（`1. 片段`，每片段一行，便于与"一标注一问题"按序对应）；`{question}`（**模式①/模式A/模式②** 均用）为空时渲染为「（未提供，仅凭片段与上下文）」（模式①/模式A 的入参 `question` 为必填，实际不空）；`{context}`（**模式①/模式A** 用）→ **引用片段**（大块追问携带的选中原文，Spec FR-4b），普通提问为空、按下方空值约定渲染为「（暂无）」。**空值约定**：除 `{question}`（见上）与 `{slug}`（空 = 新会话/新主题，见模式A 模板）外，其余占位符为空时**统一渲染为「（暂无）」**——典型：新主题首问的 `{note_markdown}`、首个会话的 `{topics}`/`{background}`/`{concepts_mastered}`/`{concepts_learning}`、模式B 的 `{concepts_existing}`。
+> **占位符渲染约定**：`{topics}` → `"slug: title"`（如 `docker: Docker 入门`；**模式①作答 / 背景推断 / 模式A「命名版」**使用——模式A**优化版不含** `{topics}`/`{slug}`）；`{concepts_mastered}` → `score ≥ 50` 的概念，`名称(等级)`（如 `容器(familiar)`）；`{concepts_learning}` → `score < 50` 的概念，`名称(等级)`（如 `镜像(unfamiliar)`）。**概念记忆一律按 `score` 分这两类喂给 AI**——`< 50` 的多为用户标注过、尚未学会的词，**不得当作已掌握**。`{concepts_existing}`（**仅模式B 使用**）→ **全部概念名清单、不含分数/等级**（如 `容器, 镜像, 低耦合`），供模式B **优先复用同名概念**；`{snippets}`（**仅模式B 使用**）→ **编号列表**（`1. 片段`，每片段一行，便于与"一标注一问题"按序对应）；`{question}`（**模式①/模式A/模式②** 均用）为空时渲染为「（未提供，仅凭片段与上下文）」（模式①/模式A 的入参 `question` 为必填，实际不空）；`{context}`（**模式①/模式A** 用）→ **引用片段**（大块追问携带的选中原文，Spec FR-4b），普通提问为空、按下方空值约定渲染为「（暂无）」。**空值约定**：除 `{question}`（见上）外，其余占位符为空时**统一渲染为「（暂无）」**——典型：新主题首问的 `{note_markdown}`、首个会话的 `{topics}`/`{background}`/`{concepts_mastered}`/`{concepts_learning}`、模式B 的 `{concepts_existing}`。
 
 ### 6.1 解答笔记智能体 — 模式①作答（流式纯 Markdown）
 
@@ -290,13 +290,31 @@ MODEL=deepseek-flash
    - `insert_text` 的插入位置由后端统一决定（**优先词后、兜底行末**），你无需精确控制。
 ```
 
-### 6.3 问题优化智能体 — 模式A（初始问题 + 命名主题）
+### 6.3 问题优化智能体 — 模式A（优化问题；显式新建时命名主题）
+
+模式A 有**两种** user prompt。**模式A 永不判断"新建 vs 并入"**——主题归属完全由用户决定（默认并入当前主题；点「新建笔记」或在无主题时首次提问才新建）。
+
+**（1）优化版（默认，`new_topic=false`）**：只优化问题，**不喂** topics、**不产出** slug/title。
+
+```
+你是提问优化助手。
+
+【用户背景】{background}
+【已掌握概念】{concepts_mastered}   // score≥50，如 "容器(familiar)"
+【尚不熟悉的概念】{concepts_learning}   // score<50（用户标注过、尚未学会）
+【用户问题】{question}
+【引用片段】{context}   // 用户选中追问的一大块原文，可空
+
+【任务】把用户的问题优化得更清晰、更聚焦。
+【输出】只输出 JSON：{"optimized_question": "..."}
+```
+
+**（2）命名版（`new_topic=true`）**：优化问题 + **命名新主题**（喂【现有主题】仅供 slug 避免重名）。
 
 ```
 你是提问优化与主题命名助手。
 
-【当前主题】{slug}（当前主题 slug；为空表示新会话/新主题）
-【现有主题】{topics}   // 形如 "docker: Docker 入门"
+【现有主题】{topics}   // 形如 "docker: Docker 入门"，仅供 slug 避免重名
 【用户背景】{background}
 【已掌握概念】{concepts_mastered}   // score≥50，如 "容器(familiar)"
 【尚不熟悉的概念】{concepts_learning}   // score<50（用户标注过、尚未学会）
@@ -305,9 +323,8 @@ MODEL=deepseek-flash
 
 【任务】
 1. 把用户的问题优化得更清晰、更聚焦。
-2. 判断该问题是否属于一个**新主题**（与当前主题核心概念链关联弱，属并行关系）：
-   - 是新主题 → 给出英文短名 slug 与中文标题 title，slug **不得与【现有主题】中任何 slug 重复**。
-   - 不是 → slug/title 与当前主题一致。
+2. 为这个问题**命名一个新主题**：给出英文短名 slug（仅小写字母/数字/连字符）与中文标题 title；
+   slug **不得与【现有主题】中任何 slug 重复**。
 
 【输出】只输出 JSON：{"optimized_question": "...", "slug": "...", "title": "..."}
 ```
@@ -356,11 +373,12 @@ MODEL=deepseek-flash
 ## 7. 编排流程（后端 api.py）
 
 ```
-POST /api/optimize/initial:（模式A）
-  读 slug(当前主题)/主题清单/concepts(按 score 分【已掌握】/【尚不熟悉】)/background → 调优化A → 返回 {optimized_question, slug, title}
+POST /api/optimize/initial:（模式A，**不判断新旧主题**）
+  new_topic=false（并入当前主题）：读 concepts(按 score 分【已掌握】/【尚不熟悉】)/background → 调**优化版** → 返回 {optimized_question}
+  new_topic=true （显式新建主题）：读 主题清单/concepts/background → 调**命名版** → slug **清洗为 [a-z0-9-]** 并与已有主题**去重**（不符则回喂重试）→ 返回 {optimized_question, slug, title}
 
 POST /api/answer (SSE):
-  1. 校验 question/slug/title（slug/title 由模式A 给出）
+  1. 校验 question/slug/title（slug/title 由前端决定：并入当前主题用当前值，显式新建用模式A 命名并经清洗去重后的值）
   2. 读 memory(concepts 按 score 分【已掌握】/【尚不熟悉】+background)、读 notes(当前主题 MD)、列出其他主题(slug/title) 供内链
   3. 调解答笔记智能体 chat_stream() → 逐块作为 delta 事件推送
   4. 流结束：**先清洗正文**——把正文中**行首标题（`#`/`##`/`###`…）一律压为 `###`**（`#`/`##` 由程序掌控，避免与 `## {问题}` 同级混淆；**代码围栏 ``` / ~~~ 内的行除外**，避免把代码里的 `#` 注释误压为标题）；若正文开头是重复的问题标题行则删除；整体被 ``` 代码围栏包裹则去围栏。再以 `## {问题}` + 清洗后正文 组成 Q/A 区块——slug 已存在 → 追加到文件末尾；新 slug → 新建文件（先写 `# {title}`）与 notes 记录；**均刷新 notes.updated_at**（新建时写 created_at）；写 questions(source='initial'，concept 置 NULL)；发 done
@@ -414,19 +432,19 @@ POST /api/memory/refresh（**会话级一次**，前端启动时调）:
 ## 8. 前端关键交互
 
 - **启动加载**：页面加载时调 `GET /api/notes`（**按 `updated_at` 倒序**）→ 有主题则**自动打开最近更新的一篇**（"继续上次学习"）；无主题则显示空态、引导提问。
-- **页面结构（无独立「AI 回答区」）**：主区为**笔记区**，流式回答**直接追加进笔记**；另有**提问/问题确认区**（同一块区域按状态复用）与**设置页**。
+- **页面结构（无独立「AI 回答区」）**：主区为**笔记区**，流式回答**直接追加进笔记**；侧边为**主题列表**（读 `GET /api/notes`，可切换已有主题、并有「新建笔记」入口）；另有**提问/问题确认区**（同一块区域按状态复用）与**设置页**。
 - **流式渲染**：`POST /api/answer` 用 `fetch` + `ReadableStream` 读 SSE（EventSource 不支持 POST）。收 `delta` 直接在**笔记区**累积渲染（当前主题新 Q/A 块实时长出）；收 `done` 用后端返回的 `note_markdown` 覆盖刷新笔记。
 - **提问/问题确认区**：
-  - 提问态：输入原始问题 → 点「优化」→ `POST /api/optimize/initial` → **就地**展示确认卡（**优化后的问题可编辑**；主题只读显示"并入《title》/新建《title》"，`slug` 不可改）→ 确认 → 发出。
+  - 提问态：输入原始问题 → 点「优化」→ `POST /api/optimize/initial`（**并入当前主题**时 `new_topic=false`；**点过「新建笔记」或当前无主题**时 `new_topic=true`）→ **就地**展示确认卡（**优化后的问题可编辑**；主题只读——并入时显示 `并入《当前主题 title》`，新建时显示 `新建《AI title》` + `slug`，`slug` 不可改）→ 确认 → 发出。
   - 标注态：标注收集完（**用户点「生成候选问题」按钮手动触发**，避免每次划词都调 LLM）后，**整批标注一次性**调 `POST /api/optimize/annotation` → 同一区域切换为**候选问题列表**（每条可编辑/删减、单选**简单/深入**）→ 点「开始扩写」进入 `annotating`；**下钻**——`annotating` 期间在笔记区新标注的片段，**立即单独再走一遍模式B**（复用同一确认区）并把结果**插到队列最前、优先处理**（此时笔记区**仍可划词**；`optimizing` 拉取中与确认卡待处理时**不可标注**）。
 - **划词标注**：在**笔记区**、流式结束后且 Markdown 渲染成稳定 DOM 时，用 `window.getSelection()` 捕获选中文本（后端按"**优先词后、兜底行末**"定位，见 §4.1），写入标注列表，符合 Spec FR-4。
   - **确认方式（v1）**：捕获到 ≤60 字的选区后，**在选区上方浮出小气泡「标注」**，用户**点击才写入** `annotations[]`（避免"选字复制"被误标，v1 无撤销）；气泡在点空白处、选区消失或**页面滚动**时自动关闭；已收集标注以**标签列表**展示在**提问/确认区上方**（每条可「×」移除），与引用片段同区。
 - **划词分流（大块 → 追问）**：同一 `window.getSelection()` 取到的选中文本，**去除首尾空白**后按**字符数**分流——**> 60 字**视为**大块**，**不进标注列表**，自动把该文本作为**引用片段**带入**提问区**（无独立弹窗），用户输入问题（**可留空** → 默认「请详细讲解这段内容」），走既有提问链路（模式A → 确认 → `/api/answer`，请求带 `context`），回答**末尾追加**新 Q/A 区块；**≤ 60 字**走既有划词标注（Spec FR-4a/FR-4b）。
 - **内链渲染**：`react-markdown` 外挂 `remark-wikilink` 小插件，把 `[[概念名]]` / `[[slug#概念]]` 转成高亮 `<span>`（v1 **不可点击跳转**；跳转/图谱留 v2）。
 - **标注跳转渲染**：`NoteView` 的 `react-markdown` 开启 **`rehype-raw`**，以渲染标注写入的行内 HTML 锚点（`<a id="anno-{n}">`）与 `[↩]` 回跳链接；**原词 ⇄ 解释**的跳转由浏览器**原生锚点导航**完成（Spec FR-9c），**无需额外 JS**。
-- **状态（zustand store）**：`annotations[]`、`pendingQuestions[]`、`noteSlug`/`noteMarkdown`、`optimizeCard`、`pendingContext`（大块追问的引用片段，Spec FR-4b）；另有流式专用的 `streamingQuestion`/`streamingText`——`delta` 只累加到 `streamingText`（**不写入 `noteMarkdown`**，避免每个 delta 重解析整篇笔记），在**笔记区底部**以 `## {streamingQuestion}` 为题实时长出「当前新 Q/A 块」；`done` 用后端 `note_markdown` 覆盖 `noteMarkdown` 并清空两字段。**"是否正在流式"由 `phase` 派生**（`useIsStreaming`），不单设布尔字段（避免"阶段"与"是否在流式"两份状态不同步）；`streaming` 期间给笔记区加 `--streaming` 类以 **`user-select: none` 禁止划词标注**。
+- **状态（zustand store）**：`annotations[]`、`pendingQuestions[]`、`noteSlug`/`noteTitle`/`noteMarkdown`（`noteTitle` 供「并入当前主题」时拼 `/api/answer` 的 `title`、并在确认卡只读展示）、`newTopicMode`（用户是否点了「新建笔记」：进入时**清空 `noteSlug`/`noteTitle`/`noteMarkdown` 让笔记区回到空白页**并显示「新笔记」引导与**「取消」按钮**——取消即退出新建态回到「未打开笔记」引导，再从侧边栏选一篇；供 AskBar 决定 `new_topic`；`openNote` 会复位它）、`optimizeCard`、`pendingContext`（大块追问的引用片段，Spec FR-4b）；另有流式专用的 `streamingQuestion`/`streamingText`——`delta` 只累加到 `streamingText`（**不写入 `noteMarkdown`**，避免每个 delta 重解析整篇笔记），在**笔记区底部**以 `## {streamingQuestion}` 为题实时长出「当前新 Q/A 块」；`done` 用后端 `note_markdown` 覆盖 `noteMarkdown` 并清空两字段。**"是否正在流式"由 `phase` 派生**（`useIsStreaming`），不单设布尔字段（避免"阶段"与"是否在流式"两份状态不同步）；`streaming` 期间给笔记区加 `--streaming` 类以 **`user-select: none` 禁止划词标注**。
 - **状态流转**：`idle`（可提问/可标注）→ 提交提问 → `optimizing`（模式A 出确认卡）→ 确认 → `streaming`（**禁止标注**，回答流入笔记）→ `done`（可标注）→ 标注收集完 → `optimizing`（模式B 拉候选问题）→ 用户确认 → `annotating`（**一次一个**，用户点「已理解」或「跳过」后进入下一个；单条失败提示该条重试）→ 回到 `idle`。请求进行中禁用对应按钮，避免重复提交与状态错乱。
-- **流程驱动**：标注完 → `POST /api/optimize/annotation` → QuestionConfirm（每项含深度选择「简单/深入」）→ 用户确认 → **逐个** `POST /api/annotate`，每条返回后刷新笔记；用户读后点「已理解」→ `POST /api/memory/confirm`（更新该概念记忆）→ 再提交下一条；也可点「跳过」→ 不调 `confirm`、记忆不变、直接提交下一条（**单条失败即中断**，提示该条重试）。**递归下钻**：用户可在新扩写内容上继续划词 → 立即 `POST /api/optimize/annotation` → **插到待处理队列最前、优先处理**；队列清空才回 `idle`。用户直接输入新问题 → `POST /api/optimize/initial` → 确认（`slug` 只读）→ `POST /api/answer`（同主题追加 / 新主题新建）。
+- **流程驱动**：标注完 → `POST /api/optimize/annotation` → QuestionConfirm（每项含深度选择「简单/深入」）→ 用户确认 → **逐个** `POST /api/annotate`，每条返回后刷新笔记；用户读后点「已理解」→ `POST /api/memory/confirm`（更新该概念记忆）→ 再提交下一条；也可点「跳过」→ 不调 `confirm`、记忆不变、直接提交下一条（**单条失败即中断**，提示该条重试）。**递归下钻**：用户可在新扩写内容上继续划词 → 立即 `POST /api/optimize/annotation` → **插到待处理队列最前、优先处理**；队列清空才回 `idle`。用户直接输入新问题 → `POST /api/optimize/initial`（**仅优化问题**；`new_topic=true` 时另命名主题）→ 确认（`slug` 只读，且仅新建时展示）→ `POST /api/answer`（**默认并入当前主题追加** / **显式新建时新建文件**）。
 - **串行执行模型（T3.6）**：`annotating` 期间以**当前条**（`currentId`）为唯一执行对象——扩写当前条 → 失败则**中断**（不推进队列、仅提示**该条重试**）／成功则**按响应 `anchor_id` 自动滚动到解释处并短暂高亮**（让用户立即看到「解释在哪」；`brief` 落在插入点、`deep` 落在**文末新章节**），再等用户读后点「已理解」或「跳过」→ 移除当前条、推进下一条（无则收尾回 `idle`）。「已理解」与「跳过」在本任务均为**前端本地动作**（`已理解` → `POST /api/memory/confirm` 的接线见 **M4 T4.6**）：不回滚已写扩写、不改记忆。**下钻插队项在「当前条结束后」优先处理**（队首优先）；`currentId` 不随队列插入而漂移（下钻插到队首不影响正在执行的当前条）。每次扩写成功一律以返回的**最新 `note_markdown`** 覆盖前沿状态。
 - **候选问题 ↔ 划词原文配对（T3.6）**：`POST /api/optimize/annotation` 的每个候选问题**回带 `snippet_index`**（1-based、对应输入 `snippets` 的编号）；前端**一律按 `snippet_index` 取原文**作为候选项的 **`snippet`**（**前端专有字段、非后端契约**），并在执行时作为 `/api/annotate` 的 **`anchor`**（笔记定位用）——**不依赖输出顺序**（按学习顺序重排也不影响配对）。该字段**不随候选问题文本编辑而变**（编辑只改问题 `text`）。
 - **背景展示与刷新**：**页面加载/刷新（=会话开始）时调一次** `POST /api/memory/refresh`；**长会话中途不重算**，设置页提供"刷新背景"按钮可手动再调。设置页显示当前背景，用户可编辑覆盖；一旦手改即置 `background_locked=1`，此后自动推断不再覆盖。
@@ -441,6 +459,7 @@ POST /api/memory/refresh（**会话级一次**，前端启动时调）:
 | `test_notes.py` | 标注插入定位（**优先词后、兜底行末**）：源码命中 anchor → 插词后；跨行内标记 → 逐行脱标记命中 → 插**该行行末**（多列表项/表格行时紧邻原词所在行，不落到整段末尾）；重复取首次；未命中报错；`deep` 把 `####` 新章节**追加到文件末尾**（原地只留括号简释）、末尾带 `[↩]`；**双向跳转**（Spec FR-9c）：源码命中 → 原词包 `[原词](#anno-{n})` + 来源锚点 `<a id="anno-{n}-src">`、解释侧 `brief` 在插入点带锚点 + `[↩]`；兜底命中 → **降级单向**（只解释侧锚点、插行末）；`apply_annotation` 支持传入固定 `anno_id`、`insert_annotation` 返回 `(全文, anchor_id)` |
 | `test_memory.py` | 规则：被标注新概念=10（已在库被标注**不改分**）置 pending；「已理解」→ pending=0、`min(100, score+10)`；**重复「已理解」不加分（幂等）**；`score≥80` 即 `mastered` |
 | `test_parse.py` | JSON 输出约束与容错：`json_mode` 请求带 `response_format`、剥离 ```` ```json ```` 包裹、容忍多余文字、校验不过回喂重试 1 次、字段缺失给默认值 |
+| `test_question_optimizer.py` / `test_api.py` | 模式A：**优化版**不含 `{topics}`/不解析 slug/title、**命名版**（`new_topic=true`）喂【现有主题】且 slug/title 为空 → 回喂重试；`/api/optimize/initial` 响应按 `new_topic` 分支（false 只回 `optimized_question`）、命名版 slug **清洗 `[a-z0-9-]` + 去重**（重名加数字后缀） |
 
 **端到端**：demo 阶段以手动验证为主（curl + 浏览器）。
 **前端**：demo 阶段暂不引自动化测试，UI 稳定后再补。
@@ -453,13 +472,14 @@ POST /api/memory/refresh（**会话级一次**，前端启动时调）:
 | M2 前端骨架 | NoteView + AskBar/QuestionConfirm + 流式打字机（含 proxy）+ **启动加载**（自动打开最近主题） | 浏览器能提问、确认优化问题与主题、实时看回答流入笔记 |
 | M3 标注+问题确认+深度 | 划词标注 + `/api/optimize/annotation` + QuestionConfirm（简单/深入）+ `/api/annotate` | 标注后生成候选问题、确认深度、笔记原地扩写 |
 | M4 记忆 | memory 表 + `/memory` + `/memory/confirm`（学懂确认）+ 规则 + 背景设置 | 记忆随标注/确认更新并影响下次回答 |
-| M5 主题边界 | 模式A 命名主题、开新主题、跨主题 `[[slug#概念]]` 正向内链 | springmvc vs flux 并行主题正向引用（反向留 v2） |
+| M5 主题与内链 | 模式A 命名主题（**用户显式新建时**）、跨主题 `[[slug#概念]]` 正向内链 | 新建主题文件正确创建；springmvc vs flux 并行主题正向引用（反向留 v2） |
 
 ## 11. 已确认决策
 
 - **回答即笔记**；标注是对笔记的**原地插入**扩写——**优先词后、兜底行末**（grep 命中源码 → 插到划词之后；跨行内标记 → 逐行脱标记定位 → 插**该行行末**）。
 - **笔记结构**：`# {title}` + 若干 **Q/A 区块**（`## {问题}` + 回答正文）；新提问追加 Q/A 区块，标注扩写在该区块**内部**原地插入。
-- **自由提问**统一先过模式A：同主题 → 追加笔记；关联弱（并行关系）→ 经用户确认后开新主题。
+- **自由提问**统一先过模式A（**仅优化问题**）：**默认并入当前打开的主题**（追加 Q/A 区块）；需要新主题时经**主题列表的「新建笔记」入口**显式新建（模式A 命名 slug/title，后端清洗+去重）——**主题归属不由 AI 判定**。
+- **主题管理**：左侧**主题列表**（`GET /api/notes`，按 `updated_at` 倒序）可切换已有主题；「新建笔记」进入新主题模式（清空笔记区、AskBar 以 `new_topic=true` 提问）；页面加载仍自动打开最近更新的一篇。
 - **大块选区退化追问**：选区（去首尾空白）**> 60 字**自动判为大块 → 退化为**追问**（引用该块走提问区 → 模式A → 确认 → `/api/answer` **末尾追加** Q/A），**不做锚点插入、不写概念记忆**，引用只进 Prompt（【引用片段】）不进 `## 问题` 标题；`≤ 60 字` 走标注；判据**只按字符数、不看跨行**（Spec FR-4a/FR-4b）。
 - **保留猜问题环节**（模式B）+ 每个标注单独选**简单/深入**。
 - **深入讲解**的新章节**追加到笔记文件最末尾**（原地只留括号简释）；原词链接跳到底部章节、底部「↩」跳回原词。
@@ -482,7 +502,7 @@ POST /api/memory/refresh（**会话级一次**，前端启动时调）:
 
 | # | 问题 | 处理 |
 |---|---|---|
-| 1 | **slug 撞名 / 非法**：模式A 可能产出与现有主题重复或含非法字符的 slug | `slug` **用户不可改**（消除手改风险）；后端**校验合法性**（非法字符 → 回退为"并入当前主题"）；与现有主题重复 → 按"已存在→追加"处理（**不会崩**，最坏误并入）。v1 **不**做自动后缀 |
+| 1 | **slug 撞名 / 非法**：模式A 命名时可能产出重复或含非法字符的 slug | `slug` **用户不可改**；后端把 `slug` **清洗为 `[a-z0-9-]`**（仅小写字母/数字/连字符，非法字符 → `-`、折叠并去首尾）并对已有主题**去重**（重复则加 `-2`/`-3` 数字后缀）。模式A **不再产出"并入"回退**（新建主题由用户显式触发） |
 | 2 | **`anchor` 多次出现**：同一词在笔记中出现多次，用户标的未必是首次 | 后端**取首次出现的段落**；v1 接受，前端可提示用户选更独特的片段 |
 | 3 | **划词↔Markdown 源码映射**：脱标记后模糊匹配非精确 | v1 用"**源码 grep 优先 + 逐段脱标记兜底**"的段落级定位；表格/嵌套列表/代码块内等极端排版可能定位不准，v1 接受 |
 | 4 | **反向引用 / 点击跳转 / 知识图谱** | v2（v1 只做正向内链的轻量高亮渲染） |

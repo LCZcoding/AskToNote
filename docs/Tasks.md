@@ -77,7 +77,7 @@
 
 
 - [x] **T1.10 模式A 接口（基础版）**
-  - 做：`prompts.py` 落 Plan §6.3 模板；`question_optimizer.py` 实现模式A 方法；`POST /api/optimize/initial`：入参 `{question, slug?}` → 出参 `{optimized_question, slug, title}`（组装时按 Plan §6 渲染约定注入背景与两类概念）。**注**：主题边界判定与 slug 合法性校验的完善在 **M5 T5.1**。
+  - 做：`prompts.py` 落 Plan §6.3 模板；`question_optimizer.py` 实现模式A 方法；`POST /api/optimize/initial`：入参 `{question, slug?}` → 出参 `{optimized_question, slug, title}`（组装时按 Plan §6 渲染约定注入背景与两类概念）。**注**：主题边界判定与 slug 合法性校验的完善在 **M5 T5.1**。**（已在 T3.7 修订：入参改为 `{question, context?, new_topic?}`、模式A 不再判定主题归属、`slug` 改为清洗+去重，见 T3.7 / T5.1；本节为当时的实现记录。）**
   - 产出：`app/agents/question_optimizer.py`（模式A）、模式A Prompt（`prompts.py`）、`app/api.py` 路由（另加 `tests/test_question_optimizer.py`、`test_api.py` 各 4 用例）。**前置**：Plan §6 补 `【用户问题】{question}`（见 T1.11 背景）。
   - 验证：传 `{question}` 返回结构符合契约、字段齐全（JSON 解析容错生效）。
   - 实测：`uv run pytest -q` → `80 passed`（新增 8 个用例：Prompt 渲染 2、智能体 2、路由 4）。覆盖：问题注入 Prompt、空 slug 原样保留（不替换「（暂无）」）、空背景/概念/主题统一「（暂无）」、`json_mode=True` 调用、非法 JSON 回喂重试 1 次成功、两次失败 → `502`、`【现有主题】`含全部主题（不排除当前，供 slug 去重）。真实调用 `optimize_initial`（slug 空 = 新主题）→ 返回 `{optimized_question: "Docker 中的「容器（container）」到底是什么？…", slug: "docker", title: "Docker 容器基础"}`，字段齐全、JSON 约束生效。
@@ -206,12 +206,12 @@
   - 验证：后端 `uv run pytest -q` → **110 passed**（改：deep 断言改为「原地无锚点/无回跳 + `####` 追加文末且末尾带「↩」」；新增：「原词在 `[[内链]]` 内且位于多行列表项 → 解释落在**原词所在行末**」、「anchor 含换行 → 逐行不命中 → 退回整段匹配插段末」）；前端 `npm run build` + `npm run lint` 全绿。**渲染实测**（Playwright + Chromium，`page.route` stub 全部接口，不调 LLM：**11/11 PASS**）：`####` 章节渲染为 `h4` 且位于**所有 `## ` 区块之后**、深释正文与「↩」在**笔记最末尾**、锚点 `<a id="anno-x">` 在 `h4` 内、原地简释**不含「↩」**；点击原词链接后 `.app-main` `scrollTop 0 → 529`、底部锚点滚入视口（`top=520`，视口 800）。
   - 遗留：`backend/data/notes/client-vs-java-backend.md` 中**此前已被写坏**的标注（第 33/35 行「容灾」、第 285 行「RESTful API」等）**未自动清理**，等用户决定是否回退重标。
 
-- [ ] **T3.7 主题列表 + 手动切换 / 新建入口（插队，优先于 M4）**
-  - 做：前端新增**主题列表** UI（读 `GET /api/notes`，按 `updated_at` 倒序），点击可在**已有主题间手动切换**（复用 `GET /api/note/{slug}` + `openNote`）；并提供**显式「新建笔记」入口**，不再只依赖模式A 自动判定新主题。
-  - 前置（**先改 Plan §8 再改码**）：补主题列表的契约与交互——列表位置、空态、与「启动自动打开最近一篇」的关系（列表存在时是否仍自动打开）、新建入口如何与模式A 协同（显式新建时是否仍走 `/api/optimize/initial` 确认 slug/title）。后端若无需新接口则复用现有读接口。
-  - 产出：主题列表组件 + 切换/新建接线（+ Plan §8 契约补充）。
-  - 验证：能在多个已有主题间切换查看，各自笔记独立渲染；能显式新建一篇并正确落盘。
-  - 背景：用户反馈**无法验证上一轮 bug 修复合集**——缺少打开**指定笔记**的入口，只能看自动打开的最近一篇；该项插队到当前任务，做完即可自行验收标注配对与滚动高亮。
+- [x] **T3.7 主题列表 + 手动切换 / 新建入口（插队，优先于 M4）；并彻底移除模式A 的「自动判定新主题」**
+  - 做：前端新增**主题列表**（侧边栏，读 `GET /api/notes` 按 `updated_at` 倒序），点击可在**已有主题间手动切换**（`GET /api/note/{slug}` + `openNote`）；并提供**显式「新建笔记」入口**。**主题归属改由用户决定**——模式A **只优化问题**，不再产出「新建 / 并入」判定；仅当用户**显式新建**（点「新建笔记」或无主题时首问）才走**命名版** `new_topic=true` 另命名 `slug`/`title`，其余一律**并入当前主题**。
+  - 前置（**先改 Plan / Spec 再改码**）：Spec §4/§5.1/FR-2/FR-3b/FR-3c/FR-13/FR-14/§6.7/§8/§10 与 Plan §4.0/§4.1/§6/§6.3/§7/§8/§9/§10/§11/§12 #1 全部改写为「用户显式新建」契约（`new_topic` 请求参数、`slug` 清洗为 `[a-z0-9-]` + 去重、删除「非法 → 回退并入当前主题」）。
+  - 产出：`docs/Spec.md`、`docs/Plan.md`；后端 `app/prompts.py`（双模板 + 双 render）、`app/agents/question_optimizer.py`（`optimize_initial(new_topic, topics)` + 双 system prompt + 命名版非空校验）、`app/notes.py`（`sanitize_slug`）、`app/api.py`（`OptimizeInitialRequest{question, context, new_topic}` + 分支 + `_dedupe_slug`）、`tests/test_question_optimizer.py`、`tests/test_api.py`；前端 `src/types.ts`、`src/api.ts`、`src/store.ts`（`noteTitle`/`newTopicMode`/`openNote(slug,title,markdown)`/`startNewTopic`/`setInitialCard{newTopic}`）、`src/components/AskBar.tsx`、`src/components/QuestionConfirm.tsx`、新增 `src/components/TopicList.tsx`+`.css`、`src/App.tsx`+`App.css`（侧边栏布局）。
+  - 验证：能在多个已有主题间切换查看、各自独立渲染；点「新建笔记」→ 提问 → 模式A 命名新 `slug`/`title` → 落盘为新主题文件；已打开主题直接提问 → 默认并入当前主题追加。后端 `uv run pytest -q` → **115 passed**（新增/改：优化版不含 `{topics}`、命名版含【现有主题】、命名版空 slug 回喂重试、`/api/optimize/initial` 分 `new_topic` 两分支、slug 清洗去重 `docker!`+已有`docker` → `docker-2`）；前端 `npm run build` + `npm run lint` 全绿。
+  - 背景：用户反馈**无法验证上一轮 bug 修复合集**——缺少打开**指定笔记**的入口，只能看自动打开的最近一篇；且明确要求**「不要依赖模式A 自动判定新主题……一定要去除干净」**。两项同批落地：去掉 AI 判定后，本项「新建笔记」入口成为**唯一的建主题路径**。
 
 ---
 
@@ -251,15 +251,15 @@
 
 ---
 
-## M5 主题边界
+## M5 主题与内链
 
 **验证标准（Plan §10）**：springmvc vs flux 并行主题正向引用；新主题文件正确创建。
-> 边界说明：新主题的**落盘机制**（新建文件 + `notes` 记录）已在 **T1.7** 实现，本里程碑只做**判定**（T5.1）与**跨主题内链**（T5.2）。
+> 边界说明：新主题的**落盘机制**（新建文件 + `notes` 记录）已在 **T1.7** 实现；**主题归属由用户显式决定 + 模式A 命名**已在 **T3.7** 落地（不再由 AI 判定边界）。本里程碑只做**跨主题内链**（T5.2）。
 
-- [ ] **T5.1 主题边界判定 + slug 校验**
-  - 做：模式A 完善新主题判定（关联弱 → 新 `slug`/`title`）；后端校验 `slug` 合法性 + 去重：**非法字符 → 回退为并入当前主题**；重复 → 按"已存在→追加"处理（Plan §12 #1，**不做自动后缀**）。
-  - 产出：模式A 判定逻辑 + 校验函数。
-  - 验证：构造非法 slug 请求，确认回退并入当前主题且不崩。
+- [x] **T5.1 主题命名（用户显式驱动）+ slug 清洗 / 去重**（已随 T3.7 落地）
+  - 做：**移除**模式A 的「新建 vs 并入」判定；仅当用户**显式新建主题**（`new_topic=true`）时由模式A 命名 `slug`/`title`；后端把 `slug` **清洗为 `[a-z0-9-]`** 并与已有主题**去重**（重复加 `-2`/`-3` 后缀）。**删除**旧的「非法字符 → 回退为并入当前主题」逻辑。
+  - 产出：`app/prompts.py`、`app/agents/question_optimizer.py`、`app/notes.py`（`sanitize_slug`）、`app/api.py`（`new_topic` 分支 + `_dedupe_slug`）。
+  - 验证：`new_topic=false` 只回 `optimized_question`、不喂主题；`new_topic=true` 回 `{optimized_question, slug, title}` 且 slug 已清洗去重（`docker!` + 已有 `docker` → `docker-2`）；命名版空 slug 触发回喂重试。
 
 - [ ] **T5.2 跨主题正向内链**
   - 做：模式① Prompt 注入【其他主题】清单（`slug: title`），要求跨主题概念用 `[[slug#概念]]`、本主题用 `[[概念名]]`（高亮渲染已由 **T2.4** 覆盖，**不改前端**）。
@@ -270,12 +270,13 @@
 
 ## 端到端验收（手动，对齐 Spec §3.1 目标）
 
-- [ ] 页面刷新后自动打开最近更新的主题（"继续上次学习"）；无主题时显示空态引导。
-- [ ] 提问 → 模式A 确认（问题可改、slug 只读）→ 流式回答进笔记，形成 `## 问题` 区块。
+- [ ] 页面刷新后自动打开最近更新的主题（"继续上次学习"）；无主题时显示空态引导；侧边**主题列表**可切换任意已有主题。
+- [ ] 提问 → 模式A 确认（**仅优化问题**；新建主题时另显示 `slug`/`title`，只读）→ 流式回答进笔记，形成 `## 问题` 区块。
+- [ ] 点「＋ 新建」→ 提问 → 模式A **命名**新 `slug`/`title` → 落盘为新主题文件；已打开主题直接提问 → 默认**并入当前主题**追加。
 - [ ] 划词标注多个陌生点 → 模式B 出候选问题 → 逐条选**简单/深入** → 笔记**原地扩写**（deep 含 `####` 章节）。
 - [ ] 点「已理解」→ 记忆 `pending` 清、`score+10`；重复点击不叠加。
 - [ ] 点「跳过」→ 不调 `confirm`、记忆不变、队列推进到下一条（已写入的扩写不回滚）。
-- [ ] 重复提问与标注，同一主题追加、新主题新建；跨主题正向内链渲染正常。
+- [ ] 重复提问与标注，同一主题追加；跨主题正向内链渲染正常。
 - [ ] 选中一大块（> 60 字）→ 自动进提问区并带引用 → 追问 → 回答作为新 Q/A 区块追加到笔记末尾（不入标注列表、不改记忆）。
 - [ ] 标注后：点笔记里的**原词**跳到其解释、点解释的「↩」跳回原词（通用 MD 阅读器打开亦可点）。
 - [ ] 二次会话背景推断生效，且回答深度随掌握度变化。
