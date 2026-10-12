@@ -70,41 +70,46 @@ def test_append_creates_dir_when_missing(notes_dir) -> None:
 
 
 def test_insert_after_anchor_when_source_hit() -> None:
-    """源码精确命中 → **双向跳转**：原词前插来源锚点并包成链接，词后插解释侧锚点与「↩」回跳。"""
+    """源码精确命中 → brief：原词**就地升级为 `==高亮==`**（Spec FR-15）+ 解释侧锚点 + 简释，**不做跳转**。"""
     content = "# Docker 入门\n\n## 什么是容器\n\n容器是一种轻量化的虚拟化技术。\n"
     out = notes.apply_annotation(content, "轻量化", "（即共享宿主内核）")
-    m = re.search(r'<a id="anno-([0-9a-f]{8})-src"></a>\[轻量化\]\(#anno-([0-9a-f]{8})\)', out)
+    m = re.search(
+        r'==轻量化==<a id="anno-([0-9a-f]{8})"></a>（即共享宿主内核）的虚拟化技术。', out
+    )
     assert m is not None
-    assert m.group(1) == m.group(2)  # 原词链接指向同一 id
-    n = m.group(1)
-    assert f'<a id="anno-{n}"></a>（即共享宿主内核）[↩](#anno-{n}-src)' in out
-    assert "容器是一种" in out and "的虚拟化技术。" in out
+    assert "容器是一种==轻量化==" in out
+    assert "-src" not in out
+    assert "[↩]" not in out
+    assert "[轻量化](#anno-" not in out
+    assert "容器是一种" in out
 
 
 def test_insert_at_line_end_when_anchor_crosses_inline_markup() -> None:
-    """anchor 跨行内标记（源码搜不到）→ 兜底命中 → **行末**插解释，且**降级为单向**（无来源锚点/回跳/包词）。"""
+    """anchor 跨行内标记（源码搜不到）→ 兜底命中 → **行末**插解释，且**降级单向**（不重建高亮/无来源锚点/回跳）。"""
     content = "# Docker\n\n## 容器与镜像\n\n**容器**和**镜像**是核心。\n"
     out = notes.apply_annotation(content, "容器和镜像", "（本节要弄清的一对概念）")
     m = re.search(r'<a id="anno-([0-9a-f]{8})"></a>（本节要弄清的一对概念）', out)
     assert m is not None
     assert "**容器**和**镜像**是核心。" in out
+    assert "==" not in out
     assert "-src" not in out
     assert "[↩]" not in out
     assert "[容器和镜像](#anno-" not in out
 
 
 def test_fallback_in_markup_inserts_at_anchor_line_end() -> None:
-    """原词在 `[[内链]]` 内、且位于多行列表项之一 → 解释插到**原词所在行**行末（非整个列表末尾）。"""
+    """原词在**跨主题** `[[slug#概念]]` 内（不可重建）→ 降级单向：解释插到**原词所在行**行末（非整个列表末尾）。"""
     content = (
         "# T\n\n## Q\n\n"
-        "1. 后端做三个 [[RESTful API]] + 一张表。\n"
+        "1. 后端做三个 [[api#RESTful API]] + 一张表。\n"
         "2. 然后把它俩连起来。\n"
         "3. 再决定往哪边深入。\n"
     )
     out = notes.apply_annotation(content, "RESTful API", "（一种接口风格）")
-    assert '1. 后端做三个 [[RESTful API]] + 一张表。<a id="anno-' in out
+    assert '1. 后端做三个 [[api#RESTful API]] + 一张表。<a id="anno-' in out
     assert out.endswith("（一种接口风格）\n2. 然后把它俩连起来。\n3. 再决定往哪边深入。\n")
-    assert "[[RESTful API]]" in out  # 内链语法未被截断
+    assert "[[api#RESTful API]]" in out  # 跨主题内链语法未被截断
+    assert "==" not in out
     assert "-src" not in out and "[↩]" not in out
 
 
@@ -113,37 +118,88 @@ def test_fallback_with_newline_anchor_inserts_at_paragraph_end() -> None:
     content = "# T\n\n## Q\n\n**容器**和\n**镜像**是核心。\n\n后一段。\n"
     out = notes.apply_annotation(content, "容器和\n镜像", "（一对概念）")
     assert out.endswith("（一对概念）\n\n后一段。\n")
+    assert "==" not in out
 
 
 def test_source_hit_inside_markup_degrades_to_one_way() -> None:
-    """原词源码可命中、但已落在 `**...**` 标记内 → **降级单向**（只插解释侧锚点，不包词、不回跳）。"""
+    """原词源码可命中、但已落在 `**...**` 标记内 → **降级单向**（不重建高亮、只插解释侧锚点、不回跳）。"""
     content = "# T\n\n## Q\n\n**容器**是核心。\n"
     out = notes.apply_annotation(content, "容器", "（轻量虚拟化）")
     m = re.search(r'<a id="anno-([0-9a-f]{8})"></a>（轻量虚拟化）', out)
     assert m is not None
     assert out.count("**") == 2  # 原有粗体标记未被破坏
+    assert "==" not in out
     assert "-src" not in out
     assert "[↩]" not in out
     assert "[容器](#anno-" not in out
 
 
-def test_source_hit_inside_wikilink_degrades_to_one_way() -> None:
-    """原词落在 `[[内链]]` 内 → 降级单向（v1 内链不可点，不得破坏其语法）。"""
+def test_source_hit_inside_wikilink_upgrades_to_highlight() -> None:
+    """**同主题** `[[原词]]`（无 slug）→ 就地重建为 `==原词==`（Spec FR-15），不再是内链、也不降级。"""
     content = "# T\n\n## Q\n\n参见 [[容器]] 概念。\n"
     out = notes.apply_annotation(content, "容器", "（轻量虚拟化）")
-    assert "[[容器]]" in out
-    assert "-src" not in out
-    assert "[↩]" not in out
+    assert "[[容器]]" not in out
+    assert '参见 ==容器==<a id="anno-' in out
+    assert "（轻量虚拟化） 概念。" in out
+    assert "-src" not in out and "[↩]" not in out
+
+
+def test_source_hit_inside_cross_topic_wikilink_degrades_to_one_way() -> None:
+    """**跨主题** `[[slug#概念]]` → 不重建（保留跨主题信息）× 降级单向（只插解释侧锚点、插原词所在行末）。"""
+    content = "# T\n\n## Q\n\n参见 [[docker#容器]] 概念。\n"
+    out = notes.apply_annotation(content, "容器", "（轻量虚拟化）")
+    assert "[[docker#容器]]" in out
+    assert "==" not in out
+    assert "-src" not in out and "[↩]" not in out
     assert "[容器](#anno-" not in out
     assert '<a id="anno-' in out
 
 
+def test_brief_upgrades_inline_code_to_highlight() -> None:
+    """模式① 首次提及的名词是行内代码 → 标注扩写后就地升级为 `==高亮==`（Spec FR-15）。"""
+    content = "# T\n\n## Q\n\n`容器`是一种轻量化技术。\n"
+    out = notes.apply_annotation(content, "容器", "（轻量虚拟化）")
+    assert "`容器`" not in out
+    assert '==容器==<a id="anno-' in out
+    assert "（轻量虚拟化）是一种轻量化技术。" in out
+
+
+def test_deep_upgrades_inline_code_and_keeps_jump() -> None:
+    """深入了解：行内代码原词 → `[==原词==](#anno-{n})`（可点跳文末）+ 词前来源锚点 + 文末 `####` 章节 + `[↩]`。"""
+    content = "# T\n\n## Q\n\n`容器`是核心。\n"
+    out = notes.apply_annotation(
+        content,
+        "容器",
+        "（比喻：集装箱）",
+        depth="deep",
+        new_section={"title": "容器要义", "content": "详解。"},
+    )
+    m = re.search(
+        r'<a id="anno-([0-9a-f]{8})-src"></a>\[==容器==\]\(#anno-([0-9a-f]{8})\)（比喻：集装箱）',
+        out,
+    )
+    assert m is not None
+    n = m.group(1)
+    assert "`容器`" not in out
+    assert out.endswith(
+        f'#### 容器要义 <a id="anno-{n}"></a>\n\n详解。\n\n[↩](#anno-{n}-src)\n'
+    )
+
+
+def test_already_highlighted_not_double_wrapped() -> None:
+    """已是 `==原词==` → 不重复包（避免出现 `====原词====`）。"""
+    content = "# T\n\n## Q\n\n参见 ==容器== 概念。\n"
+    out = notes.apply_annotation(content, "容器", "（轻量虚拟化）")
+    assert "====" not in out
+    assert '参见 ==容器==<a id="anno-' in out
+
+
 def test_insert_picks_first_occurrence() -> None:
-    """anchor 多次出现 → 取**首次**（只包/插一处）。"""
+    """anchor 多次出现 → 取**首次**（只插一处）。"""
     content = "# T\n\n## Q\n\nalpha beta gamma。\n\nlater alpha beta again。\n"
     out = notes.apply_annotation(content, "alpha beta", "（首次）")
     assert out.count("（首次）") == 1
-    m = re.search(r'\[alpha beta\]\(#anno-([0-9a-f]{8})\)<a id="anno-\1"></a>（首次）', out)
+    m = re.search(r'==alpha beta==<a id="anno-([0-9a-f]{8})"></a>（首次）', out)
     assert m is not None
     assert "later alpha beta again。" in out
 
@@ -172,7 +228,7 @@ def test_insert_deep_appends_section_at_file_end() -> None:
         new_section={"title": "镜像深入", "content": "## 细节\n镜像是只读模板。"},
     )
     m = re.search(
-        r'<a id="anno-([0-9a-f]{8})-src"></a>\[核心概念\]\(#anno-([0-9a-f]{8})\)（比喻：集装箱）', out
+        r'<a id="anno-([0-9a-f]{8})-src"></a>\[==核心概念==\]\(#anno-([0-9a-f]{8})\)（比喻：集装箱）', out
     )
     assert m is not None
     n = m.group(1)
@@ -187,15 +243,40 @@ def test_insert_deep_appends_section_at_file_end() -> None:
 
 
 def test_insert_redirects_when_hit_only_in_heading() -> None:
-    """anchor 仅命中标题行 → 改取该标题下**首个正文段**，在其**首行行末**插解释侧锚点（单向）。"""
-    content = "# Docker\n\n## 容器与镜像\n\n容器是核心概念。\n"
-    out = notes.apply_annotation(content, "容器与镜像", "（此处展开）")
-    assert "## 容器与镜像" in out
+    """anchor 仅命中标题行 → 简释仍插到该标题下**首个正文段首行行末**，但**标题行内的原词照常升级为 `==高亮==`**（FR-15）。"""
+    content = "# Docker\n\n## `容器`与镜像\n\n这是核心概念。\n"
+    out = notes.apply_annotation(content, "容器", "（此处展开）")
+    assert "## ==容器==与镜像" in out  # 标题行内原词就地升级（不再是行内代码）
+    assert "`容器`" not in out
     m = re.search(r'<a id="anno-([0-9a-f]{8})"></a>（此处展开）', out)
     assert m is not None
-    assert "容器是核心概念。<a id=" in out
-    assert "[容器与镜像](#anno-" not in out
+    assert "这是核心概念。<a id=" in out  # 简释仍在标题下正文段行末
+    assert "[容器](#anno-" not in out  # brief 不包链接
     assert "-src" not in out
+    assert "[↩]" not in out
+
+
+def test_deep_heading_hit_upgrades_and_keeps_bidirectional_jump() -> None:
+    """仅命中标题行的**深入了解**：标题行内原词包成 `[==原词==](#anno-n)` + 词前来源锚点；简释落正文段行末（无锚点）；文末 `####` 章节带「↩」（FR-9c/FR-15，T3.14）。"""
+    content = "# Docker\n\n## `容器`与镜像\n\n这是核心概念。\n"
+    out = notes.apply_annotation(
+        content,
+        "容器",
+        "（比喻：集装箱）",
+        depth="deep",
+        new_section={"title": "容器要义", "content": "详解。"},
+    )
+    m = re.search(
+        r'## <a id="anno-([0-9a-f]{8})-src"></a>\[==容器==\]\(#anno-\1\)与镜像', out
+    )
+    assert m is not None
+    n = m.group(1)
+    assert "`容器`" not in out  # 行内代码已升级为高亮
+    assert "这是核心概念。（比喻：集装箱）" in out  # 简释落在正文段行末
+    assert f'<a id="anno-{n}"></a>（比喻：集装箱）' not in out  # deep 原地不带解释侧锚点
+    assert out.endswith(
+        f'#### 容器要义 <a id="anno-{n}"></a>\n\n详解。\n\n[↩](#anno-{n}-src)\n'
+    )
 
 
 def test_insert_deep_requires_new_section() -> None:
@@ -210,18 +291,18 @@ def test_insert_annotation_writes_file_under_lock(notes_dir) -> None:
     notes.append_qa_block("docker", "什么是容器", "容器是一种轻量化技术。")
     out, anchor_id = notes.insert_annotation("docker", "轻量化", "（共享内核）")
     assert anchor_id.startswith("anno-")
-    assert "[轻量化](#anno-" in out
-    assert f'<a id="{anchor_id}"></a>（共享内核）[↩](#anno-' in out
+    assert f'==轻量化==<a id="{anchor_id}"></a>（共享内核）' in out
+    assert "[↩]" not in out and "-src" not in out
     assert notes.read_note("docker") == out
 
 
 def test_apply_annotation_uses_given_anno_id() -> None:
-    """显式传入 `anno_id` → 锚点用该 id（供调用方拿回同一 id 定位解释）。"""
+    """显式传入 `anno_id` → brief 锚点用该 id（供调用方拿回同一 id 定位解释）。"""
     out = notes.apply_annotation(
         "# T\n\n## Q\n\n容器是核心。\n", "核心", "（x）", anno_id="deadbeef"
     )
-    assert '<a id="anno-deadbeef-src"></a>[核心](#anno-deadbeef)' in out
-    assert '<a id="anno-deadbeef"></a>（x）[↩](#anno-deadbeef-src)' in out
+    assert '==核心==<a id="anno-deadbeef"></a>（x）' in out
+    assert "-src" not in out and "[↩]" not in out
 
 
 # ---------------------------------------------------------------------------

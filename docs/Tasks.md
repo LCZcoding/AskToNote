@@ -99,7 +99,7 @@
   - 实测：`uv run pytest -q` → `82 passed`（+2 例：`test_answer_context_only_enters_prompt_not_question_heading`、`test_optimize_initial_passes_context_into_prompt`；并改 `test_answer_note`/`test_question_optimizer` 的占位符与 NA 计数断言）。真实调用：`POST /api/optimize/initial`（带 `context`）→ 200，优化问题切中引用片段；`curl.exe -N POST /api/answer`（带 `context`）→ `delta*`→`done`，回答围绕引用片段（原文以引用块呈现），落盘笔记标题为 `## (验证) 这段怎么理解`（**不含** `context`）。验证写入的临时主题已清理（文件 + `notes`/`questions` 行）。
 
 
-- [x] **T1.13 标注双向跳转标记（写入笔记源码，插队）**
+- [x] **T1.13 标注双向跳转标记（写入笔记源码，插队）**（**已在 T3.11 修订：只有「深入了解」才双向；「简单了解」不写原词链接/来源锚点/「↩」**）
   - 做：`app/notes.py` 的 `apply_annotation` 改造——原词**源码精确命中**时，词前插 `<a id="anno-{n}-src"></a>` 并把原词包成 `[原词](#anno-{n})`；解释处插 `<a id="anno-{n}"></a>`，并在简释末尾追加回跳 `[↩](#anno-{n}-src)`；`n = uuid4().hex[:8]`。**降级**：仅脱标记兜底命中、或原词已在链接/标记内 → **只插解释侧锚点**、不包原词、不加回跳。同步 `tests/test_notes.py`。
   - 背景：Spec FR-9c —— 原词 ⇄ 解释 **双向**可点击跳转，**写入源码**、通用 MD 阅读器可点。
   - 产出：`app/notes.py`（+ `tests/test_notes.py`）。
@@ -218,7 +218,50 @@
   - 现象：回答/笔记里的 GFM 表格（`| a | b |` 与 `| --- |`）**整段裸露为管道符文本**，完全不渲染成表格（用户实测截图反馈）。
   - 根因：`react-markdown` **默认不含 GFM**——表格不属于 CommonMark；`NoteView` 只挂了 `rehype-raw` 与 `remark-wikilink`，缺 `remark-gfm` 时表格语法退化为普通段落。
   - 产出：`frontend` 安装 `remark-gfm`；`NoteView.tsx` 抽出 `REMARK_PLUGINS=[remarkGfm, remarkWikilink]` 供正文与流式两处 `<Markdown>` 复用；`NoteView.css` 补 `.note-view table/th/td` 的边框与留白；`docs/Plan.md` §8 新增「**GFM 渲染**」条。
-  - 验证：浏览器实测笔记 `code-refactoring` → `.note-view table` = **3**、`th` = **8**、`td` = **44**，表头（目标/具体表现/不重构的后果）与首行文字与源码一致，笔记区 `innerText` **不再含 `| --- |`**，无 console 报错；`npm run build` + `npm run lint` 全绿。
+- [x] **T3.10 一键导出笔记为 `.md`（纯前端）**
+  - 做：笔记区**顶部工具条**（左 `noteTitle`、右「导出 MD」）；用 store 中 `noteMarkdown` 造 `Blob(text/markdown;charset=utf-8)` → `URL.createObjectURL` → 临时 `<a download>` 触发下载 → `revokeObjectURL`；文件名 = 标题清洗 `\ / : * ? " < > |`，清洗后为空回退 `{slug}.md`；`streaming` 期间或笔记为空时禁用。
+  - 前置（**先改 Spec / Plan 再改码**）：Spec §6.5 新增 **FR-13b**、§8 补「纯前端、不新增接口」说明；Plan §8 补「一键导出」条、§11 补「笔记导出」决策。
+  - 产出：`docs/Spec.md`、`docs/Plan.md`、`frontend/src/components/NoteView.tsx`、`frontend/src/components/NoteView.css`。
+  - 验证：浏览器实测点「导出 MD」能下载到 `.md` 文件、内容与笔记原文**逐字一致**；标题含非法字符或清洗后为空时回退 `{slug}.md`；流式期间按钮禁用；`npm run build` + `npm run lint` 全绿。
+  - 实测：`npm run build` + `npm run lint` 全绿。**浏览器实测**（`http://localhost:5173`，复用用户已启动的前后端服务，HMR 自动加载改动）：工具条左侧显示「什么是代码重构」、右侧「导出 MD」按钮 **enabled**；点击后 Chromium **确实触发下载**（`~/Downloads` 出现托管临时文件 **6936 字节**），导出文件首行 `# 什么是代码重构`、**LF 归一化后与 `backend/data/notes/code-refactoring.md` 逐字相等**（磁盘文件是 CRLF、后端读取时已归一为 LF，故字节数 6936 < 7060）；点击前后 console **无报错**。文件名规则另作校验：`什么是代码重构` → `什么是代码重构.md`、`a/b:c*d?e"f<g>h|i` → `abcdefghi.md`、`''`/`'   '`/`'///'` → 回退 `{slug}.md`。测试产物（下载临时文件、校验脚本）已清理。
+
+- [x] **T3.11 修正：简单了解（brief）不做跳转（去掉多余的「↩」）**
+  - 现象（用户实测反馈）：简单了解的简释本来就插在原词旁边，但其后仍挂着 `[↩]`、「原词」还被包成链接——点了等于没跳，等于往笔记源码里写死锚点与空链接。
+  - 根因：`apply_annotation` 的 `bidirectional` 只判断「源码精确命中且不在标记内」，**没有区分 `depth`**，`brief` 也按双向写了来源锚点 `<a id="anno-{n}-src">` + 原词链接 + `[↩]`。
+  - 前置（**先改 Spec / Plan 再改码**）：Spec FR-9c 与 §11 决策表「标注跳转」行改为**仅「深入了解」双向**；Plan §4.1 步骤 6、§4.1「标注跳转标记」（拆 brief/deep/降级 三支）、§8「标注跳转渲染」、§9 `test_notes` 行、§11 两处同步。
+  - 产出：`docs/Spec.md`、`docs/Plan.md`、`backend/app/notes.py`（`bidirectional = depth == "deep" and clean_hit`；`brief` 与降级合并为「只插解释侧锚点 + 简释」，源码干净命中时仍插**词后**）、`backend/tests/test_notes.py`（4 处断言改为 brief 无链接/无「↩」）。
+  - 验证：`uv run pytest -q` 全绿；函数级演示 brief 产出 `容器是一种轻量化<a id="anno-…"></a>（共享宿主内核）技术。`（无 `-src`、无 `[↩]`），deep 仍产出 `[原词](#anno-…)` + 文末 `#### … <a id="anno-…"></a>` + `[↩](#anno-…-src)`。
+  - 说明：**只改写入规则**——已有笔记里旧 brief 的 `[↩]` **不自动清理**（用户选择保持原样，可自行重标或手删）。
+  - 实测：`uv run pytest -q` → **115 passed**。函数级演示：brief → `容器是一种轻量化<a id="anno-c85fe363"></a>（共享宿主内核）技术。`（**无链接、无来源锚点、无「↩」**）；deep → `容器是<a id="anno-43367f40-src"></a>[核心概念](#anno-43367f40)（比喻：集装箱）。` + 文末 `#### 镜像深入 <a id="anno-43367f40"></a>` + `[↩](#anno-43367f40-src)`（双向保持不变）。验证脚本用后即删。
+
+- [x] **T3.12 名词高亮方案改版：首次见=行内代码、已解释=`==高亮==`**
+  - 背景：用户决定改高亮方案——**初次回答里第一次见的名词**改用**行内代码**（`` `console.log()` `` 那种）；**AI 在本笔记中已解释过的名词**改用**能强调的高亮**（盼通用 MD 阅读器如 Typora 也能渲染）；**深入了解的跳转不能丢**。
+  - 前置（**先改 Spec / Plan 再改码**）：Spec FR-15 改写为「首次见=行内代码 / 已解释=`==名词==` / 跨主题=`[[slug#概念]]`」+ **升级时机**（标注扩写完成后原词就地升级），§11 决策表同步；Plan §6.1 提示词要求 3、§4.1 步骤 6 与「标注跳转标记」（新增「名词高亮升级」条）、§8 新增「强调高亮渲染」条、§2 文件树、§9 `test_notes` 行、§11 名词标记行、§12 #18 同步。
+  - 修法（后端）：`prompts.py` 的 `ANSWER_NOTE_TEMPLATE` 要求 3 改为「首次提及用行内代码；笔记里已出现 `==名词==` 的继续沿用」；`notes.py` 新增 `_upgrade_span()` 判定原词包裹（`` `原词` ``/`==原词==`/同主题 `[[原词]]`/裸文本 → 可重建为 `==原词==`；`[...](...)`/`**...**`/跨主题 `[[slug#概念]]` → 不可，降级），`apply_annotation` 据此**就地重建原词**：`brief` 写 `==原词==<a id="anno-{n}"></a>（简释）`、`deep` 写 `[==原词==](#anno-{n})`（原词可点跳文末深释）+ 词前来源锚点 + 文末 `[↩]`；无法重建时按既有规则**降级单向**。
+  - 修法（前端）：新增 `remark-highlight.ts`（把 `==文本==` → `<mark class="note-mark">`，与 `remark-wikilink` 同构、供正文与流式两处复用；**链接文本里的高亮**——`[==原词==](#anno-{n})`——同样处理）；`NoteView.tsx` 的 `REMARK_PLUGINS` 加入该插件；`NoteView.css` 补 `.note-view .note-mark` 高亮样式（行内代码沿用既有 `.note-view code` 样式）。
+  - 产出：`docs/Spec.md`、`docs/Plan.md`、`backend/app/prompts.py`、`backend/app/notes.py`、`backend/tests/test_notes.py`、`frontend/src/remark-highlight.ts`、`frontend/src/components/NoteView.tsx`、`frontend/src/components/NoteView.css`、`frontend/src/index.css`（新增 `--mark-bg` 亮/暗两套变量）。
+  - 验证：`uv run pytest -q` 全绿（brief/deep 断言改为「原词 `==高亮==`」；新增：行内代码升级为高亮、已是高亮不重复包、跨主题 `[[slug#概念]]` 保持降级）；`npm run build` + `npm run lint` 全绿；浏览器实测 `==名词==` 渲染为高亮 `<mark>`、`[==原词==](#anno-{n})` 可点击跳文末且原词仍高亮、行内代码渲染为 `<code>`。
+  - 实测：`uv run pytest -q` → **119 passed**；`npm run build`（tsc -b && vite build）与 `npm run lint` 均无报错。浏览器（Chrome，真实 dev server）在临时插入的验证块上逐条确认：`console.log()` 渲染为 `<code>`（等宽、`#1f2028` 底、4px 圆角）；`==容器==` 渲染为 `<mark class="note-mark">`（暖黄底、无字面等号）；`[==核心概念==](#anno-…)` 渲染为 `<a href="#anno-…"><mark>核心概念</mark></a>`（悬停 cursor: pointer，点击后主区滚动约 131px 到文末 `#### 临时深入章节`）；```js 代码块内 `if (type == 1)`、`const s = "a == b"` 原样显示、无 `<mark>` 包裹。控制台仅一条 React DevTools info，无报错。验证用的临时笔记内容已删除并还原文件。
+
+- [x] **T3.13 修正：模式②扩写因 `new_section.content` 含代码围栏而报「未找到 JSON 对象」**
+  - 现象（用户实测反馈）：深入了解的标注扩写失败，前端提示`操作失败：标注扩写失败：响应中未找到 JSON 对象：'{"insert": …, "new_section": {"title": "深入理解 Output Parser…", "content": "### 它是什么\n\n```python\n…```…"}}'`——**响应本身就是完整合法 JSON**，却判定"没找到对象"。
+  - 根因：`parse.extract_json` 先调 `_strip_code_fence`（`_FENCED_RE` 非贪婪 ```` ```(?:json)?…(.*?)…``` ````）"剥离围栏"，而**模式② 的 `new_section.content` 本身就是 Markdown、常含 ```` ```python ```` 代码围栏**——正则从**内层围栏**处截断，得到的片段里一个 `{` 都没有 → `find("{") == -1` → 抛 `ValueError`。（外层 `json_mode` 保证的合法 JSON 被自己破坏了。）
+  - 前置（**先改 Plan 再改码**）：Plan §7「JSON 输出约束」兜底层补齐提取规则（取首个 `{` 到**配对** `}`、字符串感知、**禁止按围栏裁剪**）；§9 `test_parse` 行同步。Spec 无对应 FR（属既有输出契约的实现缺陷，不新增需求），故 Spec 不动。
+  - 修法：`parse.py` **删掉** `_FENCED_RE`/`_strip_code_fence`（同时移除随之无用的 `import re`），`extract_json` 改为**从首个 `{` 起逐字符扫描、跟踪字符串状态**（跳过字符串内的 `{`/`}`、识别 `\"` 转义），遇到 depth 归零即返回该完整对象；找不到 `{` 或括号不配对时抛 `ValueError`。围栏包裹与首尾多余文字天然兼容（首个 `{`…配对 `}` 本就在围栏内部）。
+  - 产出：`docs/Plan.md`、`docs/Tasks.md`、`backend/app/parse.py`、`backend/tests/test_parse.py`。
+  - 验证：`uv run pytest -q` 全绿。新增/改写用例：JSON 字符串值内嵌 ``` 围栏 **不被截断**（回归根因）；字符串内的 `{`/`}` 与 `\"` 不干扰配对；括号不配对被截断 → 报错；`chat_json` 端到端跑通「`new_section.content` 含 ```python 围栏」的模式② 输出且**只调 1 次**（未触发回喂重试）；原有"围栏包裹 / 多余文字 / 无对象"用例继续通过。
+  - 实测：`uv run pytest -q` → **123 passed**（新增 5 个用例：`test_extract_json_keeps_fences_inside_string_values`、`test_extract_json_handles_braces_and_escaped_quotes_in_strings`、`test_extract_json_raises_when_unbalanced`、`test_chat_json_parses_annotate_with_code_fence_in_content`；`test_extract_json_strips_json_fence`/`_strips_bare_fence` 改名为 `_tolerates_json_fence`/`_tolerates_bare_fence`，断言不变仍通过）。
+
+- [x] **T3.14 修正：标注只命中标题行时原词不升级高亮、双向跳转全丢**
+  - 现象（用户实测反馈）：在 `### 9. \`Output Parser\`：结构化输出` 这类**标题行内**划词「Output Parser」并选深入了解后，简释确实续写到了下方正文段末尾、文末也生成了 `#### 深释章节`，但**原词仍是行内代码没有被升级为 `==高亮==`**，且**原词没有链接、文末章节末尾也没有「↩」**——双向跳转整个丢失（`data/notes/langchain-intro.md` 全篇 grep 不到一个 `==` 或 `-src`）。
+  - 根因：`notes._locate` 在「仅命中标题行」分支里把插入点重定向到标题下首个正文段后，**把原词位置一并丢弃**（返回 `word_start = -1`）。`apply_annotation` 又用 `kind == "source"` 作为「有无源码精确原词」的判据，于是标题行命中被判成"无精确位置"→ `upgrade = None` → 既不升级高亮、也不写来源锚点/链接/「↩」，整体**降级单向**。而标题行内的原词其实是**源码精确**命中，按 Spec FR-9c 的降级条件（"仅脱标记兜底命中，或原词本身已在链接/标记内"）**不该降级**——属实现与 Spec 不符的缺陷。
+  - 前置（**先改文档再改码**）：Spec FR-8 第 3 条补注「仅命中标题行时**只改简释插入点**，原词仍在标题行内按 FR-15 升级、按 FR-9c 双向跳转」；Plan §4.1 步骤 4 与「名词高亮升级」补 `"heading"` 分支（升级位置与简释插入点分离、按长度差平移插入点）。
+  - 修法（`backend/app/notes.py`）：`_locate` 返回值增列**原词所在段**（`"source"`/`"heading"` 给出精确 `word_start` 与段区间，兜底命中给 `-1`/`None`）；`apply_annotation` 改以 `word_para is not None` 判定能否升级；`"heading"` 分支先就地重建标题行内的原词（deep 再包链接），再按 `len(head) - (span_end - span_start)` **平移**插入点把简释落到正文段行末。（前端 `remark-highlight` 的 `walk` 本就递归进 `link` 子节点，`[==原词==](#anno-n)` 的高亮渲染无需改动。）
+  - 产出：`docs/Spec.md`、`docs/Plan.md`、`docs/Tasks.md`、`backend/app/notes.py`、`backend/tests/test_notes.py`。
+  - 验证：`uv run pytest -q` 全绿。改写 `test_insert_redirects_when_hit_only_in_heading`（brief：标题行内 `` `容器` `` → `==容器==`，简释仍在正文段行末，无链接/无 `-src`）；新增 `test_deep_heading_hit_upgrades_and_keeps_bidirectional_jump`（deep：标题行内 `<a id="anno-n-src"></a>[==容器==](#anno-n)` + 简释落正文段行末且不带锚点 + 文末 `####` 章节带 `[↩](#anno-n-src)`）。
+  - 实测：`uv run pytest -q` → **124 passed**。另用临时脚本对真实笔记做只读预演，输出与预期一致——brief：`### 9. ==Output Parser==：结构化输出`；deep：`### 9. <a id="anno-…-src"></a>[==Output Parser==](#anno-…)：结构化输出` + 文末 `#### … <a id="anno-…"></a>` 尾部 `[↩](#anno-…-src)`。
+
+  - 数据修复（用户确认后执行）：对已产生的 `backend/data/notes/langchain-intro.md` 手工补齐同一套标记——标题行 9 改为 `### 9. <a id="anno-6d7a49b8-src"></a>[==Output Parser==](#anno-6d7a49b8)：结构化输出`，并在已有文末深释章节末尾追加 `[↩](#anno-6d7a49b8-src)`（不重新调 LLM）。
 
 ---
 
@@ -285,5 +328,5 @@
 - [ ] 点「跳过」→ 不调 `confirm`、记忆不变、队列推进到下一条（已写入的扩写不回滚）。
 - [ ] 重复提问与标注，同一主题追加；跨主题正向内链渲染正常。
 - [ ] 选中一大块（> 60 字）→ 自动进提问区并带引用 → 追问 → 回答作为新 Q/A 区块追加到笔记末尾（不入标注列表、不改记忆）。
-- [ ] 标注后：点笔记里的**原词**跳到其解释、点解释的「↩」跳回原词（通用 MD 阅读器打开亦可点）。
+- [ ] 标注后（**深入了解**）：点笔记里的**原词**跳到文末深释章节、点那里的「↩」跳回原词（通用 MD 阅读器打开亦可点）；**简单了解**只就地插 `（简释）`，无任何跳转标记。
 - [ ] 二次会话背景推断生效，且回答深度随掌握度变化。

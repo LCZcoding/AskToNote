@@ -6,6 +6,10 @@
 // - 「原词 ⇄ 解释」的跳转由浏览器**原生锚点导航**完成，无需额外 JS；
 // - 外挂 `remark-gfm`（**表格**/删除线/任务列表/自动链接——表格不属 CommonMark，缺它会退化成段落）
 //   与 `remark-wikilink`，把 `[[概念名]]` / `[[slug#概念]]` 高亮（v1 不可点击）；
+// - 再挂 `remark-highlight`（T3.12，Spec FR-15），把 `==名词==` 渲染为 `<mark class="note-mark">`
+//   ——这是 Typora/Obsidian 通用的高亮语法，表示「本笔记已解释过」的名词（首次提及用行内代码）；
+// - **一键导出（T3.10，Spec FR-13b）**：笔记区顶部工具条右侧「导出 MD」——**纯前端**用
+//   `noteMarkdown` 造 Blob 直接下载，**不新增接口**；文件名取标题（清洗非法字符，空则回退 slug）。
 // - **流式打字机（T2.6）**：`delta` 累积在 `streamingText`，在笔记区**底部**以
 //   `## {问题}` 为题实时长出新的 Q/A 块（带光标）；`done` 用后端 `note_markdown`
 //   覆盖校正；流式期间禁止划词标注（Plan §8）。
@@ -20,6 +24,7 @@ import Markdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
 import remarkWikilink from '../remark-wikilink'
+import remarkHighlight from '../remark-highlight'
 import { useCanAnnotate, useIsStreaming, useStore } from '../store'
 import './NoteView.css'
 
@@ -28,8 +33,35 @@ const BIG_BLOCK_MAX = 60
 
 // `remark-gfm` 提供**表格**、删除线、任务列表、自动链接等 GFM 语法（表格不属 CommonMark，
 // 缺了它 `| a | b |` 会退化成普通段落）——回答里表格很常见，必须开启（Plan §8）。
-const REMARK_PLUGINS = [remarkGfm, remarkWikilink]
+// `remark-wikilink` 渲染 `[[概念名]]`，`remark-highlight` 渲染 `==名词==`（与 Typora 兼容）。
+const REMARK_PLUGINS = [remarkGfm, remarkWikilink, remarkHighlight]
 const REHYPE_PLUGINS = [rehypeRaw]
+
+/** 文件名非法字符（Spec FR-13b）：`\ / : * ? " < > |`。 */
+const ILLEGAL_FILENAME_CHARS = /[\\/:*?"<>|]/g
+
+/** 下载文件名：取标题清洗非法字符，**清洗后为空则回退 `{slug}.md`**（Spec FR-13b）。 */
+function exportFileName(title: string, slug: string): string {
+  const cleaned = title.replace(ILLEGAL_FILENAME_CHARS, '').trim()
+  return `${cleaned || slug}.md`
+}
+
+/**
+ * 一键导出笔记为 `.md`（Spec FR-13b）：**纯前端**——用内存中的笔记原文造 Blob 直接下载，
+ * 不新增后端接口（原文与磁盘 `data/notes/{slug}.md` 逐字一致）。
+ */
+function downloadMarkdown(markdown: string, filename: string): void {
+  const url = URL.createObjectURL(
+    new Blob([markdown], { type: 'text/markdown;charset=utf-8' }),
+  )
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
 
 /** 划词气泡（`position: fixed`，坐标相对视口）。 */
 interface Bubble {
@@ -40,6 +72,8 @@ interface Bubble {
 
 export default function NoteView() {
   const markdown = useStore((s) => s.noteMarkdown)
+  const noteSlug = useStore((s) => s.noteSlug)
+  const noteTitle = useStore((s) => s.noteTitle)
   const streamingQuestion = useStore((s) => s.streamingQuestion)
   const streamingText = useStore((s) => s.streamingText)
   const flashAnchorId = useStore((s) => s.flashAnchorId)
@@ -147,6 +181,23 @@ export default function NoteView() {
 
   return (
     <>
+      {/* 顶部工具条（Spec FR-13b）：左侧主题标题，右侧「导出 MD」；流式期间/笔记为空时禁用。 */}
+      <div className="note-toolbar">
+        <span className="note-toolbar-title" title={noteTitle}>
+          {noteTitle}
+        </span>
+        <button
+          type="button"
+          className="note-export"
+          disabled={isStreaming || markdown === ''}
+          onClick={() =>
+            downloadMarkdown(markdown, exportFileName(noteTitle, noteSlug))
+          }
+        >
+          导出 MD
+        </button>
+      </div>
+
       <div
         ref={viewRef}
         className={`note-view${isStreaming ? ' note-view--streaming' : ''}`}
