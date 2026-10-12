@@ -284,10 +284,12 @@
   - 实现：`memory.py` 新增**两个纯规则函数**（不含 HTTP）：`mark_concept_annotated(name)`——不在库 `INSERT score=10,pending=1`、在库仅置 `pending=1` 不动分（多次标注天然幂等）；`confirm_concept(name) -> int | None`——仅 `pending=1` 时 `pending=0`、`score=min(100,score+10)` 并返回新分，`pending=0` 原样返回（幂等），**不在库返回 `None`**（不建行，经用户确认的边界）。`updated_at` 随写刷新。等级复用既有 `level_from_score`（≥80=mastered）。
   - 实测：`uv run pytest -q` → **143 passed**（基线 132 + 新增 11）：覆盖新建=10/pending=1、在库被标注不改分、重复标注分数/pending/行数均不变、确认 `10→20`、连点两次只 +10、`95→100` 与 `100→100` 封顶、`70→80` 达 mastered、概念不存在返回 `None`、等级边界 `19/20/49/50/79/80`。任务范围仅规则函数，HTTP 路由留 T4.2、接线留 T4.6（未越界）。
 
-- [ ] **T4.2 记忆读接口 + 已理解确认**
+- [x] **T4.2 记忆读接口 + 已理解确认**
   - 做：`GET /api/memory` → `{background, concepts:[{name,score,level}]}`（`level` 后端推导，`pending` **不返回**）；`POST /api/memory/confirm` → 仅 `pending=1` 时 `pending=0`、`score=min(100, score+10)`，否则原样返回（**幂等**）。
   - 产出：两个路由。
   - 验证：同一概念连点两次 confirm，分数只 +10；返回体不含 `pending`。
+  - 实现：`api.py` 新增 `GET /api/memory`（`get_background()` + `list_concepts()`，后者只取 `name/score`、`level` 后端推导、**不含 `pending`**）与 `ConfirmRequest{concept}` + `POST /api/memory/confirm`（直接复用 T4.1 的 `confirm_concept`，不复制规则；返回 `{ok, score}`）。**概念不在库 → `404`**（沿用「资源不存在」约定，且不建行；经用户确认的边界）。
+  - 实测：`uv run pytest -q` → **148 passed**（基线 143 + 新增 5）：覆盖字段形状且严格相等（保证**无 `pending` 键**）、背景取自 `user_profile`、confirm `10→20` 且读接口复核分数/等级、连点两次只 +10（幂等）、不存在概念 404 且不建行。未越界触碰 T4.3（`POST /api/memory`、`/api/memory/refresh`）与 T4.6（`/api/annotate` 接线、前端「已理解」）。
 
 - [ ] **T4.3 背景写入与刷新**
   - 做：`POST /api/memory`（带 `background` 则写库并置 `background_locked=1`）；`POST /api/memory/refresh`（会话级一次：读概念按 `score≥50`/`<50` 分两类 + 主题清单**仅标题** → 背景推断 Prompt → `background_locked=0` 才写回）；落 Plan §6.5 背景推断 Prompt。

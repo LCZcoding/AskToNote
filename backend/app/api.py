@@ -4,7 +4,8 @@
 - `GET /api/note/{slug}`、`GET /api/notes`（T1.9）：读接口；
 - `POST /api/optimize/initial`（T1.10）：模式A 优化初始问题（`new_topic` 时另命名主题）；
 - `POST /api/optimize/annotation`（T3.2）：模式B 标注 → 候选问题；
-- `POST /api/annotate`（T3.3）：模式②标注扩写 + 落盘。
+- `POST /api/annotate`（T3.3）：模式②标注扩写 + 落盘；
+- `GET /api/memory`、`POST /api/memory/confirm`（T4.2）：记忆读接口 + 已理解确认。
 
 并发模型（Plan §7「接口实现约定」）：接口用**同步 `def`**，由 FastAPI 自动放入线程池，
 同步 LLM/文件/DB 等待只占用工作线程、不阻塞事件循环；SSE 用 `StreamingResponse` 配
@@ -160,6 +161,33 @@ def get_note(slug: str) -> dict:
 def get_notes() -> list[dict]:
     """主题列表（Plan §4.1）：`[{slug, title}]`，按 `updated_at` 倒序（最新在前）。"""
     return [{"slug": n["slug"], "title": n["title"]} for n in memory.list_notes()]
+
+
+@router.get("/memory")
+def get_memory() -> dict:
+    """读用户记忆（Plan §4.1 / §7）：`{background, concepts:[{name, score, level}]}`。
+
+    `level` 由后端按 `score` 推导（**单一真相源**，前端不再自算）；内部字段 `pending` **不返回**。
+    """
+    return {"background": memory.get_background(), "concepts": memory.list_concepts()}
+
+
+class ConfirmRequest(BaseModel):
+    """`POST /api/memory/confirm` 入参（Plan §4.1）：被确认「已理解」的概念名。"""
+
+    concept: str
+
+
+@router.post("/memory/confirm")
+def confirm_memory(req: ConfirmRequest) -> dict:
+    """「已理解」确认（Plan §7）：仅 `pending=1` 时 `pending=0`、`score=min(100, score+10)`（**幂等**）。
+
+    概念**不在库** → `404`（沿用「资源不存在」约定，且**不**凭空建行）。返回 `{ok, score}`。
+    """
+    score = memory.confirm_concept(req.concept)
+    if score is None:
+        raise HTTPException(status_code=404, detail=f"概念不存在：{req.concept}")
+    return {"ok": True, "score": score}
 
 
 class OptimizeInitialRequest(BaseModel):

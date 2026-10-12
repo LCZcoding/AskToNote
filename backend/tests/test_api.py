@@ -587,3 +587,71 @@ def test_annotate_502_when_parse_fails(env) -> None:
     )
     assert resp.status_code == 502
     assert len(holder["llm"].json_calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# T4.2 记忆读接口 + 已理解确认（Plan §4.1 / §7）
+# ---------------------------------------------------------------------------
+
+
+def _seed_concept(name: str, score: int, pending: int) -> None:
+    """写一条概念（可直接指定 score/pending）。"""
+    with memory.write_connection() as conn:
+        conn.execute(
+            "INSERT INTO concepts (name, score, pending, updated_at) VALUES (?, ?, ?, 't')",
+            (name, score, pending),
+        )
+
+
+def test_get_memory_shape_excludes_pending(env) -> None:
+    """GET /api/memory → {background, concepts:[{name,score,level}]}；不返回内部字段 pending。"""
+    client, _ = env
+    _seed_concept("容器", 60, 0)
+    _seed_concept("镜像", 10, 1)
+    resp = client.get("/api/memory")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["background"] == ""
+    # 严格字典相等 → 保证无多余键（尤其 pending）
+    by_name = {c["name"]: c for c in body["concepts"]}
+    assert by_name["容器"] == {"name": "容器", "score": 60, "level": "familiar"}
+    assert by_name["镜像"] == {"name": "镜像", "score": 10, "level": "unfamiliar"}
+
+
+def test_get_memory_returns_background(env) -> None:
+    """背景取自 user_profile。"""
+    client, _ = env
+    with memory.write_connection() as conn:
+        conn.execute("UPDATE user_profile SET background = '熟悉 Java 后端' WHERE id = 1")
+    assert client.get("/api/memory").json()["background"] == "熟悉 Java 后端"
+
+
+def test_confirm_adds_ten_and_clears_pending(env) -> None:
+    """confirm：pending=1 → pending=0、score +10；读接口复核分数/等级已更新。"""
+    client, _ = env
+    _seed_concept("镜像", 10, 1)
+    resp = client.post("/api/memory/confirm", json={"concept": "镜像"})
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "score": 20}
+    assert client.get("/api/memory").json()["concepts"] == [
+        {"name": "镜像", "score": 20, "level": "blurry"}
+    ]
+
+
+def test_confirm_twice_only_adds_ten(env) -> None:
+    """同一概念连点两次 confirm：分数只 +10（幂等）。"""
+    client, _ = env
+    _seed_concept("镜像", 10, 1)
+    first = client.post("/api/memory/confirm", json={"concept": "镜像"})
+    second = client.post("/api/memory/confirm", json={"concept": "镜像"})
+    assert first.json() == {"ok": True, "score": 20}
+    assert second.json() == {"ok": True, "score": 20}
+
+
+def test_confirm_missing_concept_returns_404(env) -> None:
+    """概念不在库 → 404（且不凭空建行）。"""
+    client, _ = env
+    resp = client.post("/api/memory/confirm", json={"concept": "不存在"})
+    assert resp.status_code == 404
+    assert "不存在" in resp.json()["detail"]
+    assert client.get("/api/memory").json()["concepts"] == []
