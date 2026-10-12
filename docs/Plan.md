@@ -146,9 +146,9 @@ CREATE TABLE annotations (
 | 方法/路径 | 请求 | 响应 |
 |---|---|---|
 | `POST /api/optimize/initial` | `{ question, slug?, context? }` | `{ optimized_question, slug, title }` |
-| `POST /api/optimize/annotation` | `{ snippets[], note_markdown }` | `{ questions:[{text, concept, kind, reason}] }` |
+| `POST /api/optimize/annotation` | `{ snippets[], note_markdown }` | `{ questions:[{snippet_index, text, concept, kind, reason}] }` |
 | `POST /api/answer` | `{ question, slug, title, context? }` | **SSE**：`delta`{text} 多次 → `done`{ note_markdown } |
-| `POST /api/annotate` | `{ slug, anchor, concept, kind, depth, question? }` | `{ note_markdown }` |
+| `POST /api/annotate` | `{ slug, anchor, concept, kind, depth, question? }` | `{ note_markdown, anchor_id }` |
 | `GET /api/note/{slug}` | - | `{ slug, title, markdown }` |
 | `GET /api/memory` | - | `{ background, concepts:[{name, score, level}] }` |
 | `POST /api/memory` | `{ background? }` | `{ ok }` |
@@ -177,7 +177,7 @@ data: {"type":"done","note_markdown":"落盘后的笔记全文"}\n\n
 4. 命中仅在**标题行**时改取该标题下**首个正文段**；都找不到 → 报错，前端提示重选；
 5. 在插入点插入 `insert_text`；`depth="deep"` 时再把 `new_section` 作为新小标题章节**紧跟该段落之后**插入。
 
-更新后刷新 `notes.updated_at`。**前端一次只提交一个标注**：本条扩写返回、用户读后点「已理解」（`POST /api/memory/confirm`）才提交下一条；用户也可点「跳过」（**前端纯本地动作**：不调 `confirm`、记忆不变、不回滚扩写）直接进入下一条；**单条失败即中断**（后续标注不再处理，前端提示失败的那条重新选择），保证序列一致；每次以后端返回的最新 `note_markdown` 更新前端状态（后端每次重读磁盘最新笔记，避免并发写互相覆盖）。**递归下钻**：用户可在新扩写内容上继续划词，新标注立即 `POST /api/optimize/annotation` 拿候选问题与深度，并**插到待处理队列最前**优先处理（后序：先弄懂叶子再回上一层）。
+更新后刷新 `notes.updated_at`。**响应另带 `anchor_id`**（= 本次解释侧锚点 id `anno-{n}`），供前端扩写成功后**滚动定位并短暂高亮**该解释（§8）。**前端一次只提交一个标注**：本条扩写返回、用户读后点「已理解」（`POST /api/memory/confirm`）才提交下一条；用户也可点「跳过」（**前端纯本地动作**：不调 `confirm`、记忆不变、不回滚扩写）直接进入下一条；**单条失败即中断**（后续标注不再处理，前端提示失败的那条重新选择），保证序列一致；每次以后端返回的最新 `note_markdown` 更新前端状态（后端每次重读磁盘最新笔记，避免并发写互相覆盖）。**递归下钻**：用户可在新扩写内容上继续划词，新标注立即 `POST /api/optimize/annotation` 拿候选问题与深度，并**插到待处理队列最前**优先处理（后序：先弄懂叶子再回上一层）。
 
 **标注双向跳转标记（Spec FR-9c，写入笔记源码）**：后端在定位插入时，为每条标注分配**短 id** `anno-{n}`（`n = uuid4().hex[:8]`）并写入锚点，使**原词 ⇄ 解释**在通用 MD 阅读器里**双向可点**：
 - **原词**（源码精确命中时）：词前插 `<a id="anno-{n}-src"></a>`，并把原词包成 Markdown 链接 `[原词](#anno-{n})`；
@@ -285,6 +285,7 @@ MODEL=deepseek-flash
 }
    - depth=brief 时不要输出 new_section 字段。
    - depth=deep 时输出 new_section，程序会把它作为新小标题章节（**标题固定 `####`**）、紧跟锚点所在段落之后插入。
+   - `insert_text` **必须整体用全角括号（）包裹**、写成一句旁注（如 `（Docker 是一个容器化工具）`），**不得**写成独立句子或分点列表——它是插进正文的简释、要让读者一眼看出「这是标注解释」。
    - `insert_text` 的插入位置由后端统一决定（**优先词后、兜底段末**），你无需精确控制。
 ```
 
@@ -325,10 +326,12 @@ MODEL=deepseek-flash
 2. 给出该片段对应的**规范化概念名** concept（**优先复用【已有概念】中的名称**，确属新概念才新建；
    若片段是"说法"，提炼其中最值得了解的概念）。
 3. 判断片段本身是「概念」（一个词/术语）还是「说法」（一句话/判断）→ kind。
-4. 每个片段**各给一个问题**（**不合并**相近片段，保证与"每个标注单独选深度"一一对应）；按学习顺序（先基础后深入）排序。
+4. **必须**在 snippet_index 里写出该片段在【标注的陌生片段】中的**编号**（1-based）：每个片段**各给一个问题**（**不合并**相近片段），编号须**恰好覆盖 1..N 各一次**。
+5. 输出顺序可按学习顺序（先基础后深入）排列；**配对一律以 snippet_index 为准**，与输出顺序无关。
 
 【输出】只输出 JSON：
-{"questions": [ {"text": "...", "concept": "...", "kind": "concept", "reason": "..."} ]}
+{"questions": [ {"snippet_index": 1, "text": "...", "concept": "...", "kind": "concept", "reason": "..."} ]}
+   // snippet_index：该片段在【标注的陌生片段】中的编号（1-based、覆盖 1..N）
    // kind ∈ "concept"(词/术语) | "statement"(说法/判断)
 ```
 
@@ -423,8 +426,8 @@ POST /api/memory/refresh（**会话级一次**，前端启动时调）:
 - **状态（zustand store）**：`annotations[]`、`pendingQuestions[]`、`noteSlug`/`noteMarkdown`、`optimizeCard`、`pendingContext`（大块追问的引用片段，Spec FR-4b）；另有流式专用的 `streamingQuestion`/`streamingText`——`delta` 只累加到 `streamingText`（**不写入 `noteMarkdown`**，避免每个 delta 重解析整篇笔记），在**笔记区底部**以 `## {streamingQuestion}` 为题实时长出「当前新 Q/A 块」；`done` 用后端 `note_markdown` 覆盖 `noteMarkdown` 并清空两字段。**"是否正在流式"由 `phase` 派生**（`useIsStreaming`），不单设布尔字段（避免"阶段"与"是否在流式"两份状态不同步）；`streaming` 期间给笔记区加 `--streaming` 类以 **`user-select: none` 禁止划词标注**。
 - **状态流转**：`idle`（可提问/可标注）→ 提交提问 → `optimizing`（模式A 出确认卡）→ 确认 → `streaming`（**禁止标注**，回答流入笔记）→ `done`（可标注）→ 标注收集完 → `optimizing`（模式B 拉候选问题）→ 用户确认 → `annotating`（**一次一个**，用户点「已理解」或「跳过」后进入下一个；单条失败提示该条重试）→ 回到 `idle`。请求进行中禁用对应按钮，避免重复提交与状态错乱。
 - **流程驱动**：标注完 → `POST /api/optimize/annotation` → QuestionConfirm（每项含深度选择「简单/深入」）→ 用户确认 → **逐个** `POST /api/annotate`，每条返回后刷新笔记；用户读后点「已理解」→ `POST /api/memory/confirm`（更新该概念记忆）→ 再提交下一条；也可点「跳过」→ 不调 `confirm`、记忆不变、直接提交下一条（**单条失败即中断**，提示该条重试）。**递归下钻**：用户可在新扩写内容上继续划词 → 立即 `POST /api/optimize/annotation` → **插到待处理队列最前、优先处理**；队列清空才回 `idle`。用户直接输入新问题 → `POST /api/optimize/initial` → 确认（`slug` 只读）→ `POST /api/answer`（同主题追加 / 新主题新建）。
-- **串行执行模型（T3.6）**：`annotating` 期间以**当前条**（`currentId`）为唯一执行对象——扩写当前条 → 失败则**中断**（不推进队列、仅提示**该条重试**）／成功则用户读后点「已理解」或「跳过」→ 移除当前条、推进下一条（无则收尾回 `idle`）。「已理解」与「跳过」在本任务均为**前端本地动作**（`已理解` → `POST /api/memory/confirm` 的接线见 **M4 T4.6**）：不回滚已写扩写、不改记忆。**下钻插队项在「当前条结束后」优先处理**（队首优先）；`currentId` 不随队列插入而漂移（下钻插到队首不影响正在执行的当前条）。每次扩写成功一律以返回的**最新 `note_markdown`** 覆盖前沿状态。
-- **候选问题 ↔ 划词原文配对（T3.6）**：`POST /api/optimize/annotation` 的输出 `questions` 与输入 `snippets` **按下标一一对应**；前端据此把划词原文作为候选项的 **`snippet`**（**前端专有字段、非后端契约**），并在执行时作为 `/api/annotate` 的 **`anchor`**（笔记定位用）。该字段**不随候选问题文本编辑而变**（编辑只改问题 `text`）。
+- **串行执行模型（T3.6）**：`annotating` 期间以**当前条**（`currentId`）为唯一执行对象——扩写当前条 → 失败则**中断**（不推进队列、仅提示**该条重试**）／成功则**按响应 `anchor_id` 自动滚动到解释处并短暂高亮**（让用户立即看到「解释在哪」），再等用户读后点「已理解」或「跳过」→ 移除当前条、推进下一条（无则收尾回 `idle`）。「已理解」与「跳过」在本任务均为**前端本地动作**（`已理解` → `POST /api/memory/confirm` 的接线见 **M4 T4.6**）：不回滚已写扩写、不改记忆。**下钻插队项在「当前条结束后」优先处理**（队首优先）；`currentId` 不随队列插入而漂移（下钻插到队首不影响正在执行的当前条）。每次扩写成功一律以返回的**最新 `note_markdown`** 覆盖前沿状态。
+- **候选问题 ↔ 划词原文配对（T3.6）**：`POST /api/optimize/annotation` 的每个候选问题**回带 `snippet_index`**（1-based、对应输入 `snippets` 的编号）；前端**一律按 `snippet_index` 取原文**作为候选项的 **`snippet`**（**前端专有字段、非后端契约**），并在执行时作为 `/api/annotate` 的 **`anchor`**（笔记定位用）——**不依赖输出顺序**（按学习顺序重排也不影响配对）。该字段**不随候选问题文本编辑而变**（编辑只改问题 `text`）。
 - **背景展示与刷新**：**页面加载/刷新（=会话开始）时调一次** `POST /api/memory/refresh`；**长会话中途不重算**，设置页提供"刷新背景"按钮可手动再调。设置页显示当前背景，用户可编辑覆盖；一旦手改即置 `background_locked=1`，此后自动推断不再覆盖。
 - **跨域**：dev 在 `vite.config.ts` 配 `server.proxy` 将 `/api` 转发到 `http://127.0.0.1:8000`；后端同时挂 `CORSMiddleware` 兜底。
 
@@ -434,7 +437,7 @@ POST /api/memory/refresh（**会话级一次**，前端启动时调）:
 
 | 测试文件 | 覆盖 |
 |---|---|
-| `test_notes.py` | 标注插入定位（**优先词后、兜底段末**）：源码命中 anchor → 插词后；跨行内标记 → 逐段脱标记命中 → 插段末；重复取首次；未命中报错；deep 在段后插 `####` 新章节；**双向跳转**（Spec FR-9c）：源码命中 → 原词包 `[原词](#anno-{n})` + 来源锚点 `<a id="anno-{n}-src">`、解释侧锚点 + `[↩]`；兜底命中 → **降级单向**（只解释侧锚点） |
+| `test_notes.py` | 标注插入定位（**优先词后、兜底段末**）：源码命中 anchor → 插词后；跨行内标记 → 逐段脱标记命中 → 插段末；重复取首次；未命中报错；deep 在段后插 `####` 新章节；**双向跳转**（Spec FR-9c）：源码命中 → 原词包 `[原词](#anno-{n})` + 来源锚点 `<a id="anno-{n}-src">`、解释侧锚点 + `[↩]`；兜底命中 → **降级单向**（只解释侧锚点）；`apply_annotation` 支持传入固定 `anno_id`、`insert_annotation` 返回 `(全文, anchor_id)` |
 | `test_memory.py` | 规则：被标注新概念=10（已在库被标注**不改分**）置 pending；「已理解」→ pending=0、`min(100, score+10)`；**重复「已理解」不加分（幂等）**；`score≥80` 即 `mastered` |
 | `test_parse.py` | JSON 输出约束与容错：`json_mode` 请求带 `response_format`、剥离 ```` ```json ```` 包裹、容忍多余文字、校验不过回喂重试 1 次、字段缺失给默认值 |
 
