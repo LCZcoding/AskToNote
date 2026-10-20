@@ -20,6 +20,7 @@
 //   浮出小气泡「标注」，用户点击才写入 `annotations[]`（避免选字复制被误标）。
 
 import { useEffect, useRef, useState } from 'react'
+import type { ComponentProps } from 'react'
 import Markdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
@@ -36,6 +37,23 @@ const BIG_BLOCK_MAX = 60
 // `remark-wikilink` 渲染 `[[概念名]]`，`remark-highlight` 渲染 `==名词==`（与 Typora 兼容）。
 const REMARK_PLUGINS = [remarkGfm, remarkWikilink, remarkHighlight]
 const REHYPE_PLUGINS = [rehypeRaw]
+
+/**
+ * 表格外包一层横向滚动容器（**仅布局，不改语义**）：
+ * 窄屏下多列表格的最小宽度会超出正文列，直接渲染会把正文撑破，
+ * 包一层后可在表格内部横滑，笔记列宽度保持不变。
+ */
+function NoteTable(props: ComponentProps<'table'> & { node?: unknown }) {
+  const { node, ...rest } = props
+  void node
+  return (
+    <div className="note-table-scroll">
+      <table {...rest} />
+    </div>
+  )
+}
+
+const MD_COMPONENTS = { table: NoteTable }
 
 /** 文件名非法字符（Spec FR-13b）：`\ / : * ? " < > |`。 */
 const ILLEGAL_FILENAME_CHARS = /[\\/:*?"<>|]/g
@@ -203,7 +221,11 @@ export default function NoteView() {
         className={`note-view${isStreaming ? ' note-view--streaming' : ''}`}
         onMouseUp={handleMouseUp}
       >
-        <Markdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS}>
+        <Markdown
+          remarkPlugins={REMARK_PLUGINS}
+          rehypePlugins={REHYPE_PLUGINS}
+          components={MD_COMPONENTS}
+        >
           {markdown}
         </Markdown>
 
@@ -211,7 +233,11 @@ export default function NoteView() {
           <section className="note-streaming">
             <div className="note-streaming-status">正在作答…（暂不可标注）</div>
             {streamingQuestion !== '' && <h2>{streamingQuestion}</h2>}
-            <Markdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS}>
+            <Markdown
+              remarkPlugins={REMARK_PLUGINS}
+              rehypePlugins={REHYPE_PLUGINS}
+              components={MD_COMPONENTS}
+            >
               {streamingText}
             </Markdown>
             <span className="note-cursor" aria-hidden="true" />

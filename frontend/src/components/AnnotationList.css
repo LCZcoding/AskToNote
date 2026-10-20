@@ -1,42 +1,57 @@
-/* 标注列表（T3.4）：提问/确认区上方，与引用片段同区（Plan §8）。 */
+/* ============================================================================
+   标注收集区：与引用片段同处提问坞顶部，用主色弱底标签表达「待处理的一批词」。
+   ========================================================================== */
 
 .anno-list {
-  max-width: 760px;
-  margin: 0 auto 8px;
+  max-width: var(--content-max);
+  width: 100%;
+  margin: 0 auto 10px;
 }
 
 .anno-list-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-.anno-list-label {
-  font-size: 12px;
-  color: var(--accent);
+  gap: 10px;
+  margin-bottom: 7px;
 }
 
-/* 「生成候选问题」：整批一次性调模式B（Plan §8，手动触发）。 */
-.anno-generate {
-  padding: 3px 10px;
-  border: 1px solid var(--accent-border);
-  border-radius: 6px;
-  background: var(--accent-bg);
-  color: var(--accent);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
+.anno-list-label {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
+
+/* 「生成候选问题」：整批调模式B 的入口，小号主色弱按钮。 */
+.anno-generate {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 600 11.5px/1.4 var(--font-sans);
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease), border-color 0.15s var(--ease),
+    opacity 0.15s var(--ease);
+}
+
+.anno-generate:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft-strong);
+}
+
 .anno-generate:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
 .anno-list-error {
   margin: 6px 0 0;
-  font-size: 12px;
-  color: #c0392b;
+  color: var(--danger);
+  font-size: 11.5px;
+  line-height: 1.55;
 }
 
 .anno-list-items {
@@ -48,36 +63,59 @@
   list-style: none;
 }
 
-/* 单条标注 = 一个标签 + 「×」移除。 */
 .anno-item {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   max-width: 100%;
-  padding: 2px 4px 2px 8px;
+  padding: 3px 4px 3px 10px;
   border: 1px solid var(--accent-border);
-  border-radius: 6px;
-  background: var(--accent-bg);
-  font-size: 13px;
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  transition: background-color 0.15s var(--ease);
 }
+
+.anno-item:hover {
+  background: var(--accent-soft-strong);
+}
+
 .anno-item-text {
   overflow: hidden;
-  color: var(--text-h);
+  color: var(--text-strong);
+  font-size: 12.5px;
+  line-height: 1.6;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
 .anno-item-remove {
   flex: 0 0 auto;
-  padding: 0 4px;
-  border: none;
-  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
   background: none;
-  color: var(--text);
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.2;
+  color: var(--text-faint);
+  font: 400 14px/1 var(--font-sans);
   cursor: pointer;
+  transition: color 0.15s var(--ease), background-color 0.15s var(--ease);
 }
+
 .anno-item-remove:hover {
-  color: #c0392b;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+@media (max-width: 480px) {
+  .anno-item {
+    padding: 3px 3px 3px 9px;
+  }
+
+  .anno-item-text {
+    font-size: 12px;
+  }
 }

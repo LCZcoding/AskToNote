@@ -1,239 +1,390 @@
-/* 笔记区排版（Plan §8）。 */
+/* ============================================================================
+   笔记区排版
+   阅读区落在画布上，不套卡片：靠留白、字号阶梯与细分割线建立秩序。
+   正文行高 1.8 更适合中英混排的长段落。
+   ========================================================================== */
 
 .note-view {
-  max-width: 760px;
+  max-width: var(--content-max);
   margin: 0 auto;
+  color: var(--text);
+  font-size: 15.5px;
+  line-height: 1.8;
   text-align: left;
-  line-height: 1.75;
+  overflow-wrap: break-word;
 }
 
-/* 顶部工具条（Spec FR-13b）：与笔记同宽；左侧主题标题，右侧「导出 MD」。 */
+/* —— 顶部工具条：滚动时吸顶，底部用渐隐遮住下方滑过的正文 —— */
+
 .note-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  max-width: 760px;
-  margin: 0 auto 12px;
+  gap: 16px;
+  max-width: var(--content-max);
+  margin: 0 auto 14px;
+  padding: 10px 0;
+  background: var(--canvas);
+  /* 滚动容器有顶部内距，吸顶时会留出一条缝；
+     用同色的上方投影把这条缝盖住，避免正文从toolbar 上方漏出来。 */
+  box-shadow: 0 -40px 0 var(--canvas);
   text-align: left;
 }
+
+.note-toolbar::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: 16px;
+  background: linear-gradient(to bottom, var(--canvas), transparent);
+  pointer-events: none;
+}
+
 .note-toolbar-title {
   min-width: 0;
   overflow: hidden;
+  color: var(--text-strong);
   font-size: 15px;
   font-weight: 600;
-  color: var(--text-h);
+  letter-spacing: -0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .note-export {
   flex: 0 0 auto;
-  padding: 4px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: none;
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.4;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  color: var(--text-muted);
+  font: 500 12.5px/1.4 var(--font-sans);
   cursor: pointer;
+  transition: color 0.16s var(--ease), background-color 0.16s var(--ease),
+    border-color 0.16s var(--ease), box-shadow 0.16s var(--ease);
 }
+
+.note-export::before {
+  content: '';
+  width: 13px;
+  height: 13px;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.5v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.5v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
 .note-export:hover:not(:disabled) {
   border-color: var(--accent-border);
-  background: var(--accent-bg);
+  background: var(--accent-soft);
   color: var(--accent);
+  box-shadow: var(--shadow-sm);
 }
+
 .note-export:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
+/* —— 标题阶梯 —— */
+
 .note-view h1 {
-  font-size: 26px;
-  line-height: 1.3;
-  margin: 0 0 18px;
-  color: var(--text-h);
+  margin: 2px 0 20px;
+  color: var(--text-strong);
+  font-size: 27px;
+  font-weight: 650;
+  line-height: 1.32;
+  letter-spacing: -0.02em;
 }
+
 .note-view h2 {
-  font-size: 20px;
-  line-height: 1.35;
-  margin: 28px 0 10px;
-  padding-bottom: 6px;
+  margin: 34px 0 12px;
+  padding-bottom: 9px;
   border-bottom: 1px solid var(--border);
-  color: var(--text-h);
+  color: var(--text-strong);
+  font-size: 19px;
+  font-weight: 650;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
 }
+
 .note-view h3 {
-  font-size: 17px;
-  margin: 20px 0 8px;
-  color: var(--text-h);
+  margin: 24px 0 8px;
+  color: var(--text-strong);
+  font-size: 16.5px;
+  font-weight: 600;
+  line-height: 1.5;
 }
+
 .note-view h4 {
+  margin: 18px 0 6px;
+  color: var(--text-strong);
   font-size: 15px;
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.note-view h5,
+.note-view h6 {
   margin: 16px 0 6px;
-  color: var(--text-h);
-}
-
-.note-view p {
-  margin: 0 0 12px;
-}
-.note-view ul,
-.note-view ol {
-  margin: 0 0 12px;
-  padding-left: 24px;
-}
-.note-view li {
-  margin: 4px 0;
-}
-
-/* GFM 表格（remark-gfm，Plan §8）：补边框与留白，避免解析成 <table> 却看不出是表格。 */
-.note-view table {
-  width: 100%;
-  margin: 0 0 12px;
-  border-collapse: collapse;
-  font-size: 0.94em;
-}
-.note-view th,
-.note-view td {
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  text-align: left;
-  vertical-align: top;
-}
-.note-view th {
-  background: var(--code-bg);
-  color: var(--text-h);
+  color: var(--text-muted);
+  font-size: 14px;
   font-weight: 600;
 }
 
+/* 标题下的第一段收紧一点，避免与大留白叠加。 */
+.note-view h1 + p,
+.note-view h2 + p,
+.note-view h3 + p {
+  margin-top: 0;
+}
+
+/* —— 正文 —— */
+
+.note-view p {
+  margin: 0 0 14px;
+}
+
+.note-view ul,
+.note-view ol {
+  margin: 0 0 14px;
+  padding-left: 1.4em;
+}
+
+.note-view li {
+  margin: 5px 0;
+}
+
+.note-view li::marker {
+  color: var(--text-faint);
+}
+
+/* 嵌套列表收紧，避免间距越缩越大。 */
+.note-view li > ul,
+.note-view li > ol {
+  margin: 4px 0 2px;
+}
+
+.note-view hr {
+  height: 1px;
+  margin: 28px 0;
+  border: 0;
+  background: var(--border);
+}
+
+/* —— 表格：外层容器负责横向滚动，避免多列表格撑破正文列 —— */
+
+.note-table-scroll {
+  margin: 4px 0 16px;
+  overflow-x: auto;
+  border-radius: var(--r-sm);
+}
+
+.note-view table {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  font-size: 0.93em;
+  line-height: 1.65;
+}
+
+.note-view th,
+.note-view td {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: break-word;
+}
+
+.note-view th {
+  background: var(--surface-muted);
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+/* —— 链接 —— */
+
 .note-view a {
   color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: var(--accent-border);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.15s var(--ease),
+    color 0.15s var(--ease);
 }
+
+.note-view a:hover {
+  color: var(--accent-strong);
+  text-decoration-color: currentColor;
+}
+
 .note-view blockquote {
-  margin: 0 0 12px;
-  padding: 2px 14px;
-  border-left: 3px solid var(--border);
+  margin: 0 0 16px;
+  padding: 10px 16px;
+  border-left: 3px solid var(--accent-border);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--accent-soft);
+  color: var(--text-muted);
 }
+
+.note-view blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* —— 代码 —— */
 
 .note-view code {
-  font-family: var(--mono);
-  font-size: 0.9em;
-  padding: 2px 5px;
-  border-radius: 4px;
-  background: var(--code-bg);
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  background: var(--surface-muted);
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 0.87em;
+  white-space: break-spaces;
 }
+
 .note-view pre {
-  margin: 0 0 12px;
-  padding: 12px 14px;
-  border-radius: 8px;
+  margin: 0 0 16px;
+  padding: 14px 16px;
   overflow-x: auto;
-  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-muted);
+  line-height: 1.7;
 }
+
 .note-view pre code {
   padding: 0;
+  border: 0;
   background: none;
+  color: var(--text);
   font-size: 0.86em;
+  white-space: pre;
 }
 
-/* [[概念名]] 内链高亮（v1 不可点击，Plan §8）。 */
+/* —— 内链 [[概念]] 与高亮 ==名词== —— */
+
 .note-view .wikilink {
-  font-size: 0.94em;
-  padding: 0 4px;
+  padding: 0 5px;
   border: 1px solid var(--accent-border);
-  border-radius: 4px;
+  border-radius: var(--r-xs);
+  background: var(--accent-soft);
   color: var(--accent);
-  background: var(--accent-bg);
+  font-size: 0.94em;
+  white-space: nowrap;
 }
 
-/* `==名词==` 强调高亮（T3.12，Spec FR-15）：表示「本笔记已解释过」的名词。
-   用暖色底 + 小圆角，与 `.wikilink` 的边框式内链区分开（Plan §8）。 */
 .note-view .note-mark {
   padding: 1px 4px;
-  border-radius: 4px;
+  border-radius: 5px;
   background: var(--mark-bg);
   color: inherit;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
-/* —— 标注回跳 & 扩写后定位高亮 —— */
+/* —— 标注回跳 & 扩写定位 —— */
 
-/* 标注回跳链接 [↩] 去下划线；锚点定位时留出顶部标题栏高度。 */
 .note-view a[href^='#anno-'] {
+  color: var(--text-faint);
+  font-size: 0.85em;
   text-decoration: none;
 }
-.note-view [id^='anno-'] {
-  scroll-margin-top: 72px;
+
+.note-view a[href^='#anno-']:hover {
+  color: var(--accent);
 }
 
-/* 扩写成功后短暂高亮解释所在段落（Plan §8）：让用户一眼看到「解释在哪」。 */
-.note-view .anno-flash {
-  border-radius: 4px;
-  animation: anno-flash 1.8s ease-out;
+.note-view [id^='anno-'] {
+  scroll-margin-top: 84px;
 }
+
+.note-view .anno-flash {
+  border-radius: var(--r-xs);
+  animation: anno-flash 1.8s var(--ease);
+}
+
 @keyframes anno-flash {
-  0% {
-    background-color: var(--accent-bg);
-    box-shadow: 0 0 0 3px var(--accent-bg);
-  }
+  0%,
   70% {
-    background-color: var(--accent-bg);
-    box-shadow: 0 0 0 3px var(--accent-bg);
+    background-color: var(--accent-soft-strong);
+    box-shadow: 0 0 0 4px var(--accent-soft);
   }
   100% {
     background-color: transparent;
-    box-shadow: none;
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 
-/* —— 流式打字机（T2.6）—— */
+/* —— 流式打字机 —— */
 
-/* 流式期间禁止划词标注（Plan §8）：屏蔽文本选中。 */
 .note-view--streaming {
   user-select: none;
 }
 
-/* 笔记区底部实时长出的「当前新 Q/A 块」。 */
 .note-streaming {
-  margin-top: 8px;
+  margin-top: 10px;
 }
+
 .note-streaming-status {
-  margin: 10px 0 2px;
-  font-size: 13px;
-  color: var(--text);
-  opacity: 0.7;
-}
-
-/* —— 划词气泡（T3.4）—— */
-
-/* 选区上方浮出的「标注」按钮；坐标由 JS 按选区 rect 计算（fixed 定位）。 */
-.note-bubble {
-  position: fixed;
-  z-index: 20;
-  transform: translate(-50%, -100%);
-  padding: 4px 12px;
-  border: 1px solid var(--accent-border);
-  border-radius: 6px;
-  background: var(--accent-bg);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 14px 0 4px;
+  padding: 3px 11px 3px 9px;
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
   color: var(--accent);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.4;
-  cursor: pointer;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
-}
-.note-bubble:hover {
-  background: var(--accent);
-  color: #fff;
+  font-size: 11.5px;
+  line-height: 1.6;
 }
 
-/* 跟随增量末尾闪烁的光标。 */
+.note-streaming-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: note-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes note-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .note-cursor {
   display: inline-block;
   width: 2px;
   height: 1.05em;
-  margin-left: 2px;
+  margin-left: 3px;
+  border-radius: 1px;
   vertical-align: text-bottom;
   background: var(--accent);
-  animation: note-cursor-blink 1s steps(1, end) infinite;
+  animation: note-cursor-blink 1.05s steps(1, end) infinite;
 }
+
 @keyframes note-cursor-blink {
   0%,
   50% {
@@ -242,5 +393,90 @@
   50.01%,
   100% {
     opacity: 0;
+  }
+}
+
+/* —— 划词气泡 —— */
+
+.note-bubble {
+  position: fixed;
+  z-index: 20;
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background-color: var(--accent-solid);
+  box-shadow: var(--shadow-md), 0 8px 20px -10px var(--accent-glow);
+  color: var(--accent-ink);
+  font: 600 12.5px/1.4 var(--font-sans);
+  cursor: pointer;
+  transform: translate(-50%, -100%);
+  animation: note-bubble-in 0.14s var(--ease);
+}
+
+.note-bubble:hover {
+  background-color: var(--accent-solid-hover);
+}
+
+@keyframes note-bubble-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -92%) scale(0.94);
+  }
+}
+
+/* ============================================================================
+   响应式
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .note-view {
+    font-size: 15px;
+    line-height: 1.78;
+  }
+
+  .note-view h1 {
+    font-size: 23px;
+  }
+
+  .note-view h2 {
+    margin-top: 28px;
+    font-size: 17.5px;
+  }
+
+  .note-view h3 {
+    font-size: 16px;
+  }
+
+  /* 窄屏下表格整宽可横滑，不再挤压文字。 */
+  .note-view th,
+  .note-view td {
+    padding: 7px 10px;
+  }
+
+  .note-toolbar {
+    padding: 8px 0;
+  }
+
+  .note-toolbar-title {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .note-view {
+    font-size: 14.5px;
+  }
+
+  .note-view h1 {
+    font-size: 21px;
+  }
+
+  .note-view h2 {
+    font-size: 16.5px;
+  }
+
+  .note-export {
+    padding: 5px 11px;
+    font-size: 12px;
   }
 }

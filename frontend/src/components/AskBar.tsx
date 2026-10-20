@@ -85,7 +85,12 @@ export default function AskBar() {
         <textarea
           className="ask-input"
           rows={2}
-          placeholder="提出你的问题（有引用片段时可留空）"
+          aria-label="提问内容"
+          placeholder={
+            pendingContext !== ''
+              ? '已引用片段，可直接点「优化」'
+              : '提出你的问题，或引用笔记片段…'
+          }
           value={question}
           disabled={busy}
           onChange={(e) => setQuestion(e.target.value)}

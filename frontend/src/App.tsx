@@ -14,6 +14,7 @@ import AskBar from './components/AskBar'
 import NoteView from './components/NoteView'
 import QuestionConfirm from './components/QuestionConfirm'
 import SettingsPanel from './components/SettingsPanel'
+import ThemeToggle from './components/ThemeToggle'
 import TopicList from './components/TopicList'
 import { useStore } from './store'
 import './App.css'
@@ -83,13 +84,17 @@ function App() {
           <h1 className="app-title">AskToNote</h1>
           <p className="app-subtitle">提问即笔记 · 一问一答长成知识</p>
         </div>
-        <button
-          type="button"
-          className="app-settings"
-          onClick={() => setSettingsOpen(true)}
-        >
-          设置
-        </button>
+        <div className="app-header-actions">
+          {/* 明暗切换：一键翻转，偏好写入 localStorage（详见 theme.ts） */}
+          <ThemeToggle />
+          <button
+            type="button"
+            className="app-settings"
+            onClick={() => setSettingsOpen(true)}
+          >
+            设置
+          </button>
+        </div>
       </header>
 
       <div className="app-body">

@@ -1,47 +1,224 @@
+/* ============================================================================
+   设计令牌（Design Tokens）
+   ----------------------------------------------------------------------------
+   所有组件只消费这里的语义变量，不再各自写死颜色/圆角/阴影，以保证：
+   1) 明暗两套主题切换时整站同步；
+   2) 主色（accent）与辅助色（aux）职责分明：主色承担交互与品牌，
+      辅助色只用于「分类/深度」这类次级信息，避免抢焦点；
+   3) 文字有 strong / base / muted / faint 四级层次，占位与提示不再与正文同色。
+   ========================================================================== */
+
 :root {
-  --text: #3f3a46;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --mark-bg: rgba(255, 199, 44, 0.42);
+  /* 具体主题由 <html data-theme="light|dark"> 决定，见 index.html 的内联脚本。 */
+  color-scheme: light;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  /* —— 字体 —— */
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace;
 
-  font: 16px/1.6 var(--sans);
-  color-scheme: light dark;
+  /* —— 底色层次：画布（页） / 表面（卡片·输入框） / 凹陷（代码·表头） —— */
+  --canvas: #f7f6f4;
+  --surface: #ffffff;
+  --surface-muted: #f1eff4;
+  --surface-hover: #f2f0f5;
+  --header-bg: rgba(255, 255, 255, 0.86);
+  --overlay: rgba(24, 20, 34, 0.4);
+
+  /* —— 文字层级 —— */
+  --text-strong: #17141f;
+  --text: #3c374a;
+  --text-muted: #6e6879;
+  --text-faint: #8b8494;
+
+  /* —— 描边 —— */
+  --border: #e7e3ec;
+  --border-strong: #d7d1df;
+
+  /* —— 主色（紫罗兰，承担品牌与交互） —— */
+  --accent: #5b4bdb;
+  --accent-strong: #4a3ac9;
+  --accent-solid: #5b4bdb;
+  --accent-solid-hover: #4a3ac9;
+  --accent-solid-active: #4132b8;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(91, 75, 219, 0.08);
+  --accent-soft-strong: rgba(91, 75, 219, 0.16);
+  --accent-border: rgba(91, 75, 219, 0.28);
+  --accent-ring: rgba(91, 75, 219, 0.16);
+  --accent-glow: rgba(91, 75, 219, 0.28);
+
+  /* —— 辅助色（青绿，仅用于分类/深度等次级语义） —— */
+  --aux: #0d7c73;
+  --aux-soft: rgba(13, 124, 115, 0.1);
+  --aux-border: rgba(13, 124, 115, 0.26);
+
+  /* —— 状态色 & 高亮 —— */
+  --danger: #c2403a;
+  --danger-soft: rgba(194, 64, 58, 0.09);
+  --danger-border: rgba(194, 64, 58, 0.28);
+  --mark-bg: rgba(255, 199, 44, 0.36);
+
+  /* —— 圆角 —— */
+  --r-xs: 6px;
+  --r-sm: 9px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --r-pill: 999px;
+
+  /* —— 阴影：越靠上层越明显，统一带一点冷调 —— */
+  --shadow-xs: 0 1px 2px rgba(23, 20, 31, 0.05);
+  --shadow-sm: 0 1px 2px rgba(23, 20, 31, 0.04),
+    0 2px 8px -3px rgba(23, 20, 31, 0.08);
+  --shadow-md: 0 2px 4px rgba(23, 20, 31, 0.04),
+    0 14px 26px -16px rgba(23, 20, 31, 0.22);
+  --shadow-lg: 0 2px 8px rgba(23, 20, 31, 0.06),
+    0 28px 56px -28px rgba(23, 20, 31, 0.34);
+  --shadow-focus: 0 0 0 4px var(--accent-ring);
+
+  /* —— 节奏 —— */
+  --content-max: 744px;
+  --page-x: 24px;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  font-family: var(--font-sans);
   color: var(--text);
-  background: var(--bg);
+  background: var(--canvas);
+}
+
+/* 深色主题：降低纯黑与纯白的刺眼感，表面用带蓝调的深灰拉开层次。
+   由 <html data-theme="dark"> 触发，手动切换与「跟随系统」走同一条路径。 */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --canvas: #0f1015;
+  --surface: #161821;
+  --surface-muted: #1e212b;
+  --surface-hover: #212430;
+  --header-bg: rgba(22, 24, 33, 0.86);
+  --overlay: rgba(6, 7, 11, 0.62);
+
+  --text-strong: #f2f3f7;
+  --text: #b6bac7;
+  --text-muted: #8b91a1;
+  --text-faint: #6c7283;
+
+  --border: #262a36;
+  --border-strong: #343948;
+
+  --accent: #b9a8ff;
+  --accent-strong: #cbbcff;
+  --accent-solid: #6d5bf0;
+  --accent-solid-hover: #7d6cff;
+  --accent-solid-active: #6450e8;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(147, 128, 255, 0.12);
+  --accent-soft-strong: rgba(147, 128, 255, 0.22);
+  --accent-border: rgba(164, 148, 255, 0.32);
+  --accent-ring: rgba(147, 128, 255, 0.2);
+  --accent-glow: rgba(109, 91, 240, 0.45);
+
+  --aux: #5fc7bd;
+  --aux-soft: rgba(95, 199, 189, 0.12);
+  --aux-border: rgba(95, 199, 189, 0.28);
+
+  --danger: #ff8b80;
+  --danger-soft: rgba(255, 139, 128, 0.12);
+  --danger-border: rgba(255, 139, 128, 0.3);
+  --mark-bg: rgba(255, 199, 44, 0.26);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.36),
+    0 2px 10px -4px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.36),
+    0 16px 30px -18px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4),
+    0 32px 64px -32px rgba(0, 0, 0, 0.8);
+}
+
+/* ============================================================================
+   基础重置
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--canvas);
+  color: var(--text);
+  font: 400 15px/1.65 var(--font-sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --mark-bg: rgba(255, 199, 44, 0.26);
-  }
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
+#root {
   min-height: 100vh;
-  background: var(--bg);
+}
+
+button,
+textarea,
+input,
+select {
+  font-family: inherit;
+  letter-spacing: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 键盘聚焦统一用主色描边；鼠标点击不显示（交由各组件自定义 hover/focus 视觉）。 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent-soft-strong);
+  color: var(--text-strong);
+}
+
+/* 细滚动条，与整体留白一致；Firefox 走 scrollbar-* 属性。 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: var(--r-pill);
+  background-color: var(--border-strong);
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

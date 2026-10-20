@@ -1,78 +1,160 @@
+/* ============================================================================
+   确认卡（模式A 初始确认 / 模式B 候选问题 / 串行扩写队列）
+   三张卡共用一套骨架：表面卡片 + 轻描边 + 极淡阴影，标题弱、内容强。
+   ========================================================================== */
+
 .confirm-card {
-  max-width: 760px;
-  margin: 0 auto 10px;
-  padding: 12px 14px;
+  max-width: var(--content-max);
+  margin: 0 auto 12px;
+  padding: 16px 18px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  animation: confirm-in 0.2s var(--ease);
+}
+
+@keyframes confirm-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 
 .confirm-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
+
 .confirm-title {
-  font-size: 13px;
-  color: var(--text);
+  color: var(--text-strong);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
 }
+
 .confirm-target {
-  font-size: 13px;
-  color: var(--text-h);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  text-align: right;
 }
+
 .confirm-slug {
-  margin-left: 6px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--code-bg);
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--text);
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* —— 通用输入（问题可编辑） —— */
+
+.confirm-input,
+.cand-text {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text-strong);
+  font: 400 14px/1.7 var(--font-sans);
+  resize: vertical;
+  transition: border-color 0.16s var(--ease), box-shadow 0.18s var(--ease),
+    background-color 0.16s var(--ease);
 }
 
 .confirm-input {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text-h);
-  font: inherit;
-  resize: vertical;
-  box-sizing: border-box;
+  padding: 9px 12px;
+  border-color: var(--border-strong);
 }
+
+.cand-text {
+  padding: 8px 10px;
+  border-color: transparent;
+  background: var(--surface-muted);
+}
+
+.confirm-input:hover,
+.cand-text:hover {
+  border-color: var(--border-strong);
+}
+
+.confirm-input:focus,
+.cand-text:focus {
+  border-color: var(--accent);
+  outline: none;
+  background: var(--surface);
+  box-shadow: var(--shadow-focus);
+}
+
+/* —— 操作区 —— */
 
 .confirm-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 14px;
 }
+
 .confirm-cancel,
 .confirm-ok {
-  padding: 6px 14px;
-  border-radius: 6px;
-  font: inherit;
+  padding: 8px 18px;
+  border-radius: var(--r-sm);
+  font: 500 13px/1.4 var(--font-sans);
   cursor: pointer;
+  transition: color 0.16s var(--ease), background-color 0.16s var(--ease),
+    border-color 0.16s var(--ease), box-shadow 0.16s var(--ease),
+    transform 0.12s var(--ease);
 }
+
 .confirm-cancel {
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.confirm-cancel:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
   color: var(--text);
 }
+
 .confirm-ok {
-  border: none;
-  background: var(--accent);
-  color: #fff;
+  border: 1px solid transparent;
+  background-color: var(--accent-solid);
+  box-shadow: 0 1px 2px rgba(23, 20, 31, 0.1),
+    0 8px 18px -12px var(--accent-glow);
+  color: var(--accent-ink);
+  font-weight: 600;
 }
+
+.confirm-ok:hover:not(:disabled) {
+  background-color: var(--accent-solid-hover);
+}
+
+.confirm-ok:active:not(:disabled) {
+  background-color: var(--accent-solid-active);
+  transform: translateY(1px);
+}
+
 .confirm-ok:disabled {
-  opacity: 0.5;
+  background-color: var(--surface-muted);
+  box-shadow: none;
+  color: var(--text-faint);
   cursor: not-allowed;
 }
 
-/* —— 候选问题列表（模式B，T3.5）—— */
+/* ============================================================================
+   候选问题（模式B）
+   ========================================================================== */
 
 .cand-list {
   display: flex;
@@ -82,22 +164,22 @@
   padding: 0;
   list-style: none;
 }
+
 .cand-item {
-  padding: 8px 10px;
+  padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  transition: border-color 0.16s var(--ease), box-shadow 0.18s var(--ease);
 }
 
-.cand-text {
-  width: 100%;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text-h);
-  font: inherit;
-  resize: vertical;
-  box-sizing: border-box;
+.cand-item:hover {
+  border-color: var(--border-strong);
+}
+
+.cand-item:focus-within {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .cand-meta {
@@ -105,161 +187,389 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--text);
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.6;
 }
+
 .cand-kind {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--code-bg);
+  padding: 1px 7px;
+  border-radius: var(--r-xs);
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-weight: 500;
 }
+
+/* 概念 / 说法 用辅助色区分：与主色的「可操作」语义分开。 */
 .cand-kind--concept {
-  color: var(--accent);
+  background: var(--aux-soft);
+  color: var(--aux);
 }
+
 .cand-concept {
-  padding: 1px 6px;
+  max-width: 100%;
+  padding: 1px 7px;
+  overflow: hidden;
   border: 1px solid var(--accent-border);
-  border-radius: 4px;
-  background: var(--accent-bg);
+  border-radius: var(--r-xs);
+  background: var(--accent-soft);
   color: var(--accent);
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
+
 .cand-reason {
   flex: 1 1 100%;
-  opacity: 0.75;
+  color: var(--text-muted);
+  line-height: 1.65;
 }
 
 .cand-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 10px;
+  margin-top: 10px;
 }
+
 .cand-depth {
   display: flex;
   gap: 6px;
 }
+
 .cand-depth-btn {
-  padding: 4px 12px;
+  padding: 5px 13px;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  font: 500 12.5px/1.5 var(--font-sans);
   cursor: pointer;
-}
-.cand-depth-btn--on {
-  border-color: var(--accent-border);
-  background: var(--accent-bg);
-  color: var(--accent);
-}
-.cand-remove {
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-.cand-remove:hover {
-  color: #c0392b;
+  transition: color 0.15s var(--ease), background-color 0.15s var(--ease),
+    border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
 }
 
-/* —— 待处理队列（`annotating`，T3.5 起展示，T3.6 串行执行）—— */
+.cand-depth-btn:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.cand-depth-btn--on {
+  border-color: transparent;
+  background-color: var(--accent-solid);
+  box-shadow: 0 4px 12px -8px var(--accent-glow);
+  color: var(--accent-ink);
+}
+
+.cand-depth-btn--on:hover {
+  border-color: transparent;
+  background-color: var(--accent-solid-hover);
+  color: var(--accent-ink);
+}
+
+.cand-remove {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  background: none;
+  color: var(--text-muted);
+  font: 500 12px/1.5 var(--font-sans);
+  cursor: pointer;
+  transition: color 0.15s var(--ease), background-color 0.15s var(--ease),
+    border-color 0.15s var(--ease);
+}
+
+.cand-remove:hover {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* ============================================================================
+   待处理队列 / 串行执行
+   ========================================================================== */
 
 .queue-list {
-  margin: 0;
-  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
 }
+
 .queue-item {
-  margin: 4px 0;
-  font-size: 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 2px 2px 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.65;
 }
+
+/* 深度徽标：简单=辅助色，深入=主色，待选=中性。 */
 .queue-depth {
-  margin-right: 6px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--accent-bg);
+  flex: 0 0 auto;
+  margin-top: 1px;
+  padding: 1px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.queue-depth--brief {
+  border-color: var(--aux-border);
+  background: var(--aux-soft);
+  color: var(--aux);
+}
+
+.queue-depth--deep {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
   color: var(--accent);
-  font-size: 12px;
 }
 
-/* —— 串行执行：当前条（T3.6）—— */
+.queue-depth--none {
+  background: var(--surface-muted);
+  color: var(--text-faint);
+}
 
+.queue-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 当前条：唯一强调块，用主色浅底把它从队列里拎出来。 */
 .serial-current {
-  margin-bottom: 10px;
-  padding: 10px;
+  margin-bottom: 4px;
+  padding: 14px;
   border: 1px solid var(--accent-border);
-  border-radius: 8px;
-  background: var(--accent-bg);
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
 }
+
 .serial-current-text {
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+  color: var(--text-strong);
   font-size: 14px;
-  color: var(--text-h);
+  line-height: 1.7;
 }
+
 .serial-depth {
   display: flex;
-  gap: 6px;
+  gap: 8px;
 }
+
 .serial-status {
-  font-size: 13px;
-  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+  font-size: 12.5px;
 }
+
+.serial-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: serial-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes serial-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .serial-failed {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  font-size: 13px;
-  color: #c0392b;
+  gap: 10px;
+  color: var(--danger);
+  font-size: 12.5px;
 }
-.serial-retry,
-.serial-understood,
-.serial-skip {
-  padding: 6px 14px;
-  border-radius: 6px;
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
+
 .serial-retry {
-  border: 1px solid #c0392b;
-  background: var(--bg);
-  color: #c0392b;
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--r-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font: 500 12.5px/1.4 var(--font-sans);
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease);
 }
+
+.serial-retry:hover {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
 .serial-actions {
   display: flex;
   gap: 8px;
 }
-.serial-understood {
-  border: none;
-  background: var(--accent);
-  color: #fff;
+
+.serial-understood,
+.serial-skip {
+  padding: 7px 16px;
+  border-radius: var(--r-sm);
+  font: 500 12.5px/1.4 var(--font-sans);
+  cursor: pointer;
+  transition: color 0.15s var(--ease), background-color 0.15s var(--ease),
+    border-color 0.15s var(--ease), transform 0.12s var(--ease);
 }
+
+.serial-understood {
+  border: 1px solid transparent;
+  background-color: var(--accent-solid);
+  box-shadow: 0 4px 12px -8px var(--accent-glow);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.serial-understood:hover:not(:disabled) {
+  background-color: var(--accent-solid-hover);
+}
+
 .serial-skip {
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.serial-skip:hover:not(:disabled) {
+  border-color: var(--border-strong);
   color: var(--text);
 }
-/* 「已理解」确认请求进行中：两个按钮均禁用（防重复提交 / 竞态）。 */
+
 .serial-actions button:disabled {
   opacity: 0.55;
   cursor: default;
 }
 
+/* ============================================================================
+   错误条
+   ========================================================================== */
+
 .confirm-error {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
-  max-width: 760px;
-  margin: 0 auto 8px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: rgba(192, 57, 43, 0.1);
-  font-size: 13px;
-  color: #c0392b;
+  gap: 12px;
+  max-width: var(--content-max);
+  margin: 0 auto 10px;
+  padding: 10px 12px 10px 14px;
+  border: 1px solid var(--danger-border);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--r-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.confirm-error button {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: 500 12px/1.6 var(--font-sans);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.confirm-error button:hover {
+  opacity: 1;
+}
+
+/* ============================================================================
+   响应式
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .confirm-card {
+    padding: 14px;
+    border-radius: var(--r-md);
+  }
+
+  .confirm-head {
+    flex-wrap: wrap;
+    gap: 4px 10px;
+  }
+
+  .confirm-target {
+    text-align: left;
+  }
+}
+
+@media (max-width: 480px) {
+  .confirm-card {
+    padding: 12px;
+  }
+
+  .confirm-actions {
+    gap: 8px;
+  }
+
+  .confirm-cancel,
+  .confirm-ok {
+    flex: 1 1 0;
+    padding: 8px 12px;
+  }
+
+  .cand-foot {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .cand-depth {
+    flex: 1 1 100%;
+  }
+
+  .cand-depth-btn {
+    flex: 1 1 0;
+    padding: 6px 10px;
+  }
+
+  .cand-remove {
+    margin-left: auto;
+  }
+
+  .serial-actions {
+    gap: 8px;
+  }
+
+  .serial-understood,
+  .serial-skip {
+    flex: 1 1 0;
+    padding: 8px 12px;
+  }
+
+  .confirm-error {
+    flex-direction: column;
+    gap: 6px;
+  }
 }

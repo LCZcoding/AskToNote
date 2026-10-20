@@ -8,7 +8,16 @@
 
 import { useEffect, useState } from 'react'
 import { getMemory, refreshBackground, updateMemory } from '../api'
+import { setThemeMode, type ThemeMode } from '../theme'
+import { useThemeMode } from '../useTheme'
 import './SettingsPanel.css'
+
+/** 外观三态：跟随系统最省心，亮 / 深色用于固定偏好。 */
+const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
+  { value: 'system', label: '跟随系统' },
+  { value: 'light', label: '亮色' },
+  { value: 'dark', label: '深色' },
+]
 
 /** 设置页为浮动面板，由 App 控制显隐（`onClose` 关闭）。 */
 export default function SettingsPanel({ onClose }: { onClose: () => void }) {
@@ -21,6 +30,8 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  /** 当前外观模式：'system' | 'light' | 'dark'。 */
+  const themeMode = useThemeMode()
 
   // 打开设置页时拉取最新记忆，仅取背景用于展示与编辑。
   useEffect(() => {
@@ -96,6 +107,26 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
           <button type="button" className="settings-close" onClick={onClose}>
             关闭
           </button>
+        </div>
+
+        <div className="settings-field">
+          <span className="settings-label">外观</span>
+          <div className="settings-segment" role="group" aria-label="外观主题">
+            {THEME_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                className="settings-segment-item"
+                aria-pressed={themeMode === opt.value}
+                onClick={() => setThemeMode(opt.value)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <p className="settings-hint">
+            默认跟随系统外观；选定后会被记住，下次打开仍然生效。
+          </p>
         </div>
 
         <div className="settings-field">

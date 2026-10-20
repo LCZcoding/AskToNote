@@ -1,10 +1,31 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <meta name="theme-color" content="#f7f6f4" />
+    <meta name="description" content="AskToNote —— 提问即笔记，一问一答长成知识。" />
+    <title>AskToNote · 提问即笔记</title>
+    <script>
+      // 在样式生效前确定主题，避免深色系统下先闪一下白底。
+      // 存储键 asktonote.theme 与 src/theme.ts 共用，改一处要同步另一处。
+      ;(function () {
+        var mode = 'system'
+        try {
+          mode = localStorage.getItem('asktonote.theme') || 'system'
+        } catch (e) {
+          mode = 'system'
+        }
+        var dark =
+          mode === 'dark' ||
+          (mode !== 'light' &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+        var meta = document.querySelector('meta[name="theme-color"]')
+        if (meta) meta.setAttribute('content', dark ? '#0f1015' : '#f7f6f4')
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

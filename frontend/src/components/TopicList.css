@@ -1,14 +1,18 @@
-/* 主题列表（T3.7）：左侧栏，可切换已有主题 / 新建笔记。 */
+/* ============================================================================
+   主题列表（侧边栏）
+   桌面：固定宽纵向导航，落在 --surface 上，与画布仅一线之隔；
+   窄屏（≤768）：转为顶部横向标签条，节省纵向空间给笔记与输入坞。
+   ========================================================================== */
 
 .topic-list {
-  flex: 0 0 220px;
+  flex: 0 0 248px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 16px 12px;
+  gap: 10px;
+  padding: 18px 12px;
   overflow-y: auto;
   border-right: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--surface);
 }
 
 .topic-head {
@@ -16,22 +20,36 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-}
-.topic-head-label {
-  font-size: 12px;
-  color: var(--text);
+  padding: 0 4px;
 }
 
-.topic-new {
-  padding: 2px 8px;
-  border: 1px solid var(--accent-border);
-  border-radius: 6px;
-  background: var(--accent-bg);
-  color: var(--accent);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
+.topic-head-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
 }
+
+/* 「＋ 新建」：小而清晰的主色弱按钮，不与提交按钮争夺注意力。 */
+.topic-new {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 600 11.5px/1.4 var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.16s var(--ease), border-color 0.16s var(--ease),
+    color 0.16s var(--ease), opacity 0.16s var(--ease);
+}
+
+.topic-new:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft-strong);
+}
+
 .topic-new:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -39,63 +57,208 @@
 
 .topic-new-tip {
   margin: 0;
-  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
   color: var(--accent);
+  font-size: 11.5px;
+  line-height: 1.55;
 }
 
 .topic-empty {
-  margin: 8px 0 0;
-  font-size: 13px;
+  margin: 4px 0 0;
+  padding: 0 4px;
+  color: var(--text-muted);
+  font-size: 12.5px;
 }
 
 .topic-items {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+/* 单条主题：默认无边框，悬浮浅底，选中态由左侧主色条 + 主色浅底共同表达。 */
 .topic-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
   width: 100%;
-  padding: 6px 8px;
+  padding: 8px 10px 8px 12px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   background: none;
   color: var(--text);
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: background-color 0.15s var(--ease), border-color 0.15s var(--ease);
 }
+
+.topic-item::before {
+  content: '';
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 3px;
+  width: 3px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  opacity: 0;
+  transform: scaleY(0.4);
+  transition: opacity 0.18s var(--ease), transform 0.18s var(--ease);
+}
+
 .topic-item:hover:not(:disabled) {
-  background: var(--accent-bg);
+  background: var(--surface-hover);
 }
+
 .topic-item--on {
   border-color: var(--accent-border);
-  background: var(--accent-bg);
+  background: var(--accent-soft);
 }
+
+.topic-item--on::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
 .topic-item:disabled {
   cursor: not-allowed;
-  opacity: 0.6;
+  opacity: 0.55;
 }
+
 .topic-item-title {
   overflow: hidden;
-  color: var(--text-h);
+  color: var(--text-strong);
   font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+.topic-item--on .topic-item-title {
+  color: var(--accent);
+}
+
 .topic-item-slug {
-  font-size: 11px;
-  color: var(--text);
+  overflow: hidden;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .topic-error {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: #c0392b;
+  margin: 4px 0 0;
+  padding: 0 4px;
+  color: var(--danger);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+/* ============================================================================
+   响应式
+   ========================================================================== */
+
+@media (max-width: 1180px) {
+  .topic-list {
+    flex-basis: 208px;
+    padding: 16px 10px;
+  }
+}
+
+/* 窄屏：侧栏 → 顶部横向标签条（一行可横向滑动）。 */
+@media (max-width: 768px) {
+  .topic-list {
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    scrollbar-width: none;
+  }
+
+  .topic-list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .topic-head {
+    flex: 0 0 auto;
+    padding: 0;
+  }
+
+  .topic-head-label {
+    display: none;
+  }
+
+  .topic-new-tip {
+    flex: 0 0 auto;
+    padding: 4px 9px;
+    white-space: nowrap;
+  }
+
+  .topic-empty {
+    margin: 0;
+    padding: 0;
+    white-space: nowrap;
+  }
+
+  .topic-items {
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .topic-item {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 200px;
+    padding: 6px 12px;
+    border-radius: var(--r-pill);
+    background: var(--surface-muted);
+  }
+
+  /* 横向药丸已有底色与描边区分选中态，去掉左侧色条避免重复表达。 */
+  .topic-item::before {
+    display: none;
+  }
+
+  .topic-item-title {
+    max-width: 168px;
+    font-size: 12.5px;
+  }
+
+  .topic-item-slug {
+    display: none;
+  }
+
+  .topic-error {
+    margin: 0;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .topic-list {
+    padding: 8px 14px;
+  }
+
+  .topic-item {
+    padding: 6px 11px;
+  }
+
+  .topic-item-title {
+    max-width: 140px;
+  }
 }
